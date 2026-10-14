@@ -22,6 +22,7 @@ INSERT OR IGNORE INTO reparti (id, nome, colore, ordine, area, descrizione) VALU
 ('permessi', 'Permessi', '#d95f7f', 3, 'segnalazioni', 'Valuta se il problema può dipendere da ruoli, profili o permessi utente, usando i documenti del Brain.'),
 ('redazione', 'Redazione', '#2bb59a', 4, 'segnalazioni', 'Riscrive la segnalazione pulita e pronta da inviare, applicando le lezioni imparate dalle tue modifiche.'),
 ('revisione', 'Revisione', '#8e6bd8', 5, 'segnalazioni', 'La tua stanza: qui trovi tutto ciò che è pronto da inviare. La modifichi, la invii, e il Brain impara dalle tue correzioni.');
+INSERT OR IGNORE INTO reparti (id, nome, colore, ordine, area, descrizione) VALUES ('monitoraggio', 'Monitoraggio', '#e0884a', 6, 'segnalazioni', 'Segue i ticket inviati fino alla risoluzione, misura i tempi del fornitore in giorni lavorativi e il lunedì scrive una valutazione.');
 INSERT OR IGNORE INTO agenti (id, reparto_id, nome, ruolo, lead) VALUES
 ('acc-lead', 'accettazione', 'Lead Accettazione', 'Smista i ticket nuovi', 1),
 ('acc-dup', 'accettazione', 'Doppioni', 'Cerca segnalazioni uguali o collegate', 0),
@@ -31,7 +32,10 @@ INSERT OR IGNORE INTO agenti (id, reparto_id, nome, ruolo, lead) VALUES
 ('per-prof', 'permessi', 'Profili utente', 'Confronta con i profili nel Brain', 0),
 ('red-lead', 'redazione', 'Redattore', 'Testo pronto da inviare', 1),
 ('red-stile', 'redazione', 'Stile e lezioni', 'Applica le correzioni di Davide', 0),
-('rev-davide', 'revisione', 'Davide', 'Rivede, modifica e invia', 1);
+('rev-davide', 'revisione', 'Davide', 'Rivede, modifica e invia', 1),
+('mon-lead', 'monitoraggio', 'Analista tempi', 'Tempi del fornitore e report settimanale', 1);
 INSERT OR IGNORE INTO impostazioni (chiave, valore) VALUES ('auto', '1');
 INSERT OR IGNORE INTO eventi (id, tipo, messaggio) VALUES (1, 'info', 'Ufficio IT creato. Primo reparto: Segnalazioni Sebach Plus.');
 CREATE TABLE IF NOT EXISTS allegati (id INTEGER PRIMARY KEY AUTOINCREMENT, segnalazione_id INTEGER, ticket_id INTEGER NOT NULL, origine_id INTEGER UNIQUE, nome TEXT, mime TEXT, size INTEGER, data TEXT, creato TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS tempi (ticket_id INTEGER PRIMARY KEY, codice TEXT, titolo TEXT, tipo TEXT, modulo TEXT, priorita TEXT, fonte_priorita TEXT, devops_id TEXT, stato TEXT, creato TEXT, aperto_il TEXT, risolto_il TEXT, gg_nostri REAL, gg_fornitore REAL, esito TEXT);
+CREATE TABLE IF NOT EXISTS report (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL DEFAULT 'fornitore', periodo TEXT, testo TEXT NOT NULL, creato TEXT DEFAULT (datetime('now')));

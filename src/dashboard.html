@@ -32,6 +32,7 @@ header{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px
 .sep{width:1px;height:20px;background:var(--line2)}
 .conn{display:flex;align-items:center;gap:6px;font:500 10px var(--mono);letter-spacing:1px;color:var(--mute);text-transform:uppercase;min-width:0;overflow:hidden}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:7px;background:var(--card);border:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+#syncChip{font:600 10.5px var(--mono);letter-spacing:.8px;font-variant-numeric:tabular-nums;min-width:196px;justify-content:center;cursor:default}
 .tiles{display:flex;gap:5px}
 .tile{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:8px;background:#e9e6dc;border:1px solid rgba(0,0,0,.2);color:#22243a;font:600 9.5px var(--mono);letter-spacing:.6px}
 .tile img{width:15px;height:15px;display:block}
@@ -219,6 +220,10 @@ main{position:relative;overflow:hidden;min-height:0}
 .ofield>span{font:600 9.5px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute)}
 .ofield>div{white-space:pre-wrap;word-wrap:break-word}
 .erow{display:flex;gap:8px;flex-wrap:wrap}
+.ttab{width:100%;border-collapse:collapse;font-size:12px}.ttab th{font:600 9.5px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}.ttab td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}.ttab td.n{text-align:right;font-family:var(--mono);white-space:nowrap}.ttab .cod{font-family:var(--mono);color:var(--ink2);white-space:nowrap}
+.es{font:600 9.5px var(--mono);letter-spacing:.8px;padding:2px 6px;border-radius:5px;white-space:nowrap}.es.in_tempo{background:var(--green-bg);color:var(--green)}.es.al_limite{background:var(--gold-bg);color:var(--gold)}.es.in_ritardo{background:var(--red-bg);color:var(--red)}.es.sospesa{background:var(--card);color:var(--mute)}
+.soglie{display:grid;grid-template-columns:auto auto auto;justify-content:start;gap:6px 10px;align-items:center;font-size:12px}.soglie input{width:70px;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:#1f2133;color:var(--ink);font:12px var(--mono)}
+.tsec{font:600 10px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute);margin:6px 0 2px}
 .allg{display:flex;flex-wrap:wrap;gap:8px;white-space:normal!important}.allg img{height:84px;max-width:150px;object-fit:cover;border-radius:8px;border:1px solid var(--line2);display:block}.allg .afile{color:var(--blue);text-decoration:none;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px}.allg small{color:var(--mute)}
 .ef{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ef>span{font:600 9.5px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute)}
@@ -308,6 +313,14 @@ main{position:relative;overflow:hidden;min-height:0}
   </div>
 </div></div>
 <input type="file" id="brFile" multiple accept=".txt,.md,.csv,.json,.sql,.xml,.html,.log,.pdf,.docx,.xlsx,.xls" style="display:none">
+<div class="emodal" id="tm"><div class="ebox" style="width:min(1100px,100%)">
+  <div class="ehead"><div style="min-width:0"><div class="cap" id="tmCap">Giorni lavorativi da Aperto a Risolto</div><h4>Tempi del fornitore</h4></div><span class="grow"></span><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI</button><button class="btn sm" id="tmX">CHIUDI</button></div>
+  <div class="ecol" id="tmBody" style="flex:1"></div>
+</div></div>
+<div class="emodal" id="rv"><div class="ebox" style="width:min(760px,100%);height:auto;max-height:100%">
+  <div class="ehead"><div style="min-width:0"><div class="cap">ID passati in produzione</div><h4>Segna risolti</h4></div><span class="grow"></span><button class="btn sm" id="rvX">CHIUDI</button></div>
+  <div class="ecol" id="rvBody" style="flex:1"></div>
+</div></div>
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -342,7 +355,8 @@ const QUICK = {
   triage: ['Perché l\'ultima è una CR?', 'Quali sono le più gravi?'],
   permessi: ['Quali dipendono da permessi?', 'Che documenti ti mancano?'],
   redazione: ['Cosa hai imparato dalle mie modifiche?', 'Che stile stai usando?'],
-  revisione: []
+  revisione: [],
+  monitoraggio: ['Come sta andando il fornitore?', 'Quali moduli sono più lenti?']
 };
 const STATO_LBL = {idle:'FERMO', working:'AL LAVORO', waiting:'IN ATTESA', done:'FATTO', error:'ERRORE'};
 const TASK_LBL = {scheduled:'Programmato', backlog:'Backlog', in_progress:'In corso', waiting:'In attesa', done:'Fatto'};
@@ -391,6 +405,7 @@ function repMetrics(id) {
     case 'permessi': return [['Probabili', m.permProbabili], ['Possibili', m.permPossibili]];
     case 'redazione': return [['In lavoro', m.inLavoro], ['Lezioni', m.lezioni]];
     case 'revisione': return [['Da rivedere', m.daRivedere], ['Inviate 7gg', m.inviate7]];
+    case 'monitoraggio': return [['In ritardo', m.inRitardo], ['Risolti 30gg', m.risolti30]];
   }
   return [];
 }
@@ -438,7 +453,7 @@ function renderHeader() {
   const b = $('#runBtn');
   b.textContent = S.inCorso ? '● AL LAVORO' : '▶ AVVIA ORA';
   b.classList.toggle('busy', S.inCorso);
-  $('#syncChip').textContent = imp.ultimoSync ? 'CONTROLLO ' + ago(imp.ultimoSync).toUpperCase() : 'MAI CONTROLLATO';
+  tickControllo();
   renderTiles();
   const bn = $('#banner');
   if (/^errore/.test(imp.avvioEsito || '')) { bn.className = 'banner show red'; bn.textContent = 'Ultimo avvio agenti non riuscito: ' + imp.avvioEsito.replace(/^errore:\s*/, ''); }
@@ -481,6 +496,16 @@ function renderLeft() {
         ${m.daRivedere ? '<div class="acts"><button class="btn gold" id="goRev">APRI LA REVISIONE</button></div>' : ''}
       </div>
       <div class="card">
+        <div class="cap">Tempi del fornitore · giorni lavorativi</div>
+        <div class="big">${m.risolti90 ? Math.round(m.inTempo90 / m.risolti90 * 100) + '%' : '—'} <span style="font:600 11px var(--mono);letter-spacing:1px;color:var(--mute)">RISOLTI IN TEMPO · 90 GG</span></div>
+        <div class="kv">
+          <span>Da risolvere</span><b>${m.daRisolvere || 0}</b>
+          <span>Oltre la soglia</span><b style="${m.inRitardo ? 'color:var(--red)' : ''}">${m.inRitardo || 0}</b>
+          <span>Risolti negli ultimi 30 giorni</span><b>${m.risolti30 || 0}</b>
+        </div>
+        <div class="acts"><button class="btn sm" data-act="tempi">DETTAGLI TEMPI</button><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI</button></div>
+      </div>
+      <div class="card">
         <div class="cap">Stato</div>
         <div class="kv kv2">
           <span>Bug tracker</span><b>${imp.ultimoSync ? 'controllato ' + ago(imp.ultimoSync) : 'mai controllato'}</b>
@@ -519,7 +544,7 @@ function renderLeft() {
       ${rev ? '' : `<div class="ddn"><span>IN CORSO <b>${t.doing}</b></span><span>PROSSIMI <b>${t.next}</b></span><span>FATTI 24H <b>${t.done}</b></span></div>`}
     </div>
     ${lead ? `<div class="card lead"><div class="cap">★ ${rev ? 'La tua stanza' : 'Lead · ' + esc(r.nome)}</div><h3>${esc(lead.nome)}</h3><p>${esc(r.descrizione)}</p>
-      <div class="acts">${rev ? '<button class="btn gold sm" id="goRev2">APRI LA REVISIONE</button>' : '<button class="btn gold sm" id="aggBtn">▶ AVVIA ORA</button>'}</div></div>` : ''}
+      <div class="acts">${rev ? '<button class="btn gold sm" id="goRev2">APRI LA REVISIONE</button>' : r.id === 'monitoraggio' ? '<button class="btn sm" data-act="tempi">DETTAGLI TEMPI</button><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI</button>' : '<button class="btn gold sm" id="aggBtn">▶ AVVIA ORA</button>'}</div></div>` : ''}
     <div class="card"><div class="cap">${rev ? 'Postazione' : 'Agenti · ' + ags.length}</div><div style="margin-top:6px">${ags.map(a => {
       const st = agentState(a);
       return `<div class="ag"><span class="dot ${st.s === 'working' ? 'on' : st.s === 'waiting' ? 'warn' : st.s === 'error' ? 'off' : ''}"></span><div><div class="n">${a.lead ? '★ ' : ''}${esc(a.nome)}</div><div class="r">${esc(st.att || a.ruolo || '')}</div></div><span class="s ${st.s}">${STATO_LBL[st.s] || st.s}</span></div>`;
@@ -593,7 +618,7 @@ function renderRight() {
     return;
   }
   if (rightTab === 'segnalazioni') {
-    T.innerHTML = `<div class="composer"><div class="who">Segnalazioni dal bug tracker</div><div class="note">Arrivano da sole: il Worker controlla il bug tracker ogni 10 minuti e passa agli agenti quelle in stato Nuovo.</div></div>`;
+    T.innerHTML = `<div class="composer"><div class="who">Segnalazioni dal bug tracker</div><div class="note">Arrivano da sole: il Worker controlla il bug tracker ogni 10 minuti e passa agli agenti quelle in stato Nuovo. Le inviate restano seguite fino a Risolto.</div><div class="acts"><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI DA ID DEVOPS</button><button class="btn sm" data-act="tempi">TEMPI</button></div></div>`;
     const flt = [['attive', 'Attive', s => !['inviata', 'scartata'].includes(s.stato)], ['nuova', 'In coda', s => s.stato === 'nuova'], ['in_lavoro', 'In lavoro', s => s.stato === 'in_lavoro'], ['pronta', 'Da rivedere', s => s.stato === 'pronta'], ['inviata', 'Inviate', s => s.stato === 'inviata'], ['scartata', 'Scartate', s => s.stato === 'scartata'], ['tutte', 'Tutte', () => true]];
     const f = flt.find(x => x[0] === segFilter) || flt[0];
     const shown = S.segnalazioni.filter(f[2]);
@@ -755,7 +780,7 @@ async function apriEditor(id) {
     R.innerHTML = `
       <div class="erow">
         <label class="ef"><span>Tipo</span><select id="edTipo" ${chiusa ? 'disabled' : ''}><option>BUG</option><option>CR</option></select></label>
-        <label class="ef"><span>Priorità</span><select id="edPri" ${chiusa ? 'disabled' : ''}><option>bloccante</option><option>alta</option><option>media</option><option>bassa</option></select></label>
+        <label class="ef"><span>Priorità</span><select id="edPri" ${chiusa ? 'disabled' : ''}><option value="hotfix">HotFix (in giornata)</option><option>bloccante</option><option>alta</option><option>media</option><option>bassa</option></select></label>
         <label class="ef" style="flex:1"><span>ID DevOps</span><input id="edDev" placeholder="es. 48213" maxlength="40" ${chiusa ? 'disabled' : ''}></label>
       </div>
       <label class="ef"><span>Titolo</span><input id="edTit" maxlength="300" ${chiusa ? 'disabled' : ''}></label>
@@ -804,9 +829,69 @@ async function apriEditor(id) {
   }
   $('#ed').classList.add('show');
 }
+const PRI_LBL = {hotfix: 'HotFix', bloccante: 'Bloccante', alta: 'Alta', media: 'Media', bassa: 'Bassa'};
+const ES_LBL = {in_tempo: 'IN TEMPO', al_limite: 'AL LIMITE', in_ritardo: 'IN RITARDO', sospesa: 'SOSPESA'};
+const gg = v => v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('it-IT');
+const dataBreve = t => t ? new Date(parseTs(t)).toLocaleDateString('it-IT', {day: '2-digit', month: '2-digit', year: '2-digit'}) : '—';
+function mediana(a) { if (!a.length) return null; const b = [...a].sort((x, y) => x - y), h = Math.floor(b.length / 2); return b.length % 2 ? b[h] : (b[h - 1] + b[h]) / 2; }
+function sogliaTxt(p, sg) { if (p === 'hotfix') return 'in giornata'; const [a, b] = sg[p] || [0, 0]; return a === b ? `${a} gg` : `${a}–${b} gg`; }
+async function apriTempi() {
+  $('#tm').classList.add('show');
+  $('#tmBody').innerHTML = '<div class="empty">Carico…</div>';
+  let d; try { d = await api('/api/tempi'); } catch { return; }
+  const sg = d.soglie, rr = d.righe, ora = Date.now();
+  const ris90 = rr.filter(r => r.risolto_il && ora - parseTs(r.risolto_il) < 90 * 86400000);
+  const aperti = rr.filter(r => !r.risolto_il);
+  const PR = ['hotfix', 'bloccante', 'alta', 'media', 'bassa'];
+  const riga = r => `<tr><td class="cod">${esc(r.codice || '#' + r.ticket_id)}</td><td>${esc(r.titolo || '')}<div class="note" style="margin-top:2px">${esc(r.modulo || '')}${r.devops_id ? ' · DevOps ' + esc(r.devops_id) : ''}</div></td><td>${PRI_LBL[r.priorita] || r.priorita}${r.fonte_priorita === 'bug tracker' ? '<div class="note">dal bug tracker</div>' : ''}</td><td class="n">${dataBreve(r.aperto_il)}</td><td class="n">${r.risolto_il ? dataBreve(r.risolto_il) : '—'}</td><td class="n">${gg(r.gg_nostri)}</td><td class="n"><b>${gg(r.gg_fornitore)}</b></td><td><span class="es ${r.esito}">${ES_LBL[r.esito] || r.esito}</span></td></tr>`;
+  const testa = '<tr><th>Ticket</th><th>Titolo</th><th>Priorità</th><th style="text-align:right">Aperto</th><th style="text-align:right">Risolto</th><th style="text-align:right" title="Dall\'apertura dell\'utente all\'invio su DevOps">Nostri gg</th><th style="text-align:right" title="Da Aperto a Risolto">Fornitore gg</th><th>Esito</th></tr>';
+  $('#tmCap').textContent = `Giorni lavorativi da Aperto a Risolto · aggiornato ${d.aggiornato ? ago(d.aggiornato) : 'mai'}`;
+  $('#tmBody').innerHTML = `
+    ${d.report ? `<div class="card" style="margin:0"><div class="cap">Valutazione dell'Analista · ${esc(d.report.periodo || '')} · ${ago(d.report.creato)}</div><div style="white-space:pre-wrap;font-size:13px;line-height:1.5;margin-top:6px">${esc(d.report.testo)}</div></div>` : '<div class="note">La valutazione settimanale dell\'Analista arriva il lunedì mattina.</div>'}
+    <div class="tsec">Per priorità · risolti negli ultimi 90 giorni</div>
+    <table class="ttab"><tr><th>Priorità</th><th>Soglia</th><th style="text-align:right">Risolti</th><th style="text-align:right">Mediana gg</th><th style="text-align:right">In tempo</th><th style="text-align:right">Aperti</th><th style="text-align:right">Oltre soglia</th></tr>
+    ${PR.map(p => { const R = ris90.filter(r => r.priorita === p), A = aperti.filter(r => r.priorita === p && r.esito !== 'sospesa'); const ok = R.filter(r => r.esito === 'in_tempo').length; return `<tr><td>${PRI_LBL[p]}</td><td>${sogliaTxt(p, sg)}</td><td class="n">${R.length}</td><td class="n">${gg(mediana(R.map(r => r.gg_fornitore)))}</td><td class="n">${R.length ? Math.round(ok / R.length * 100) + '%' : '—'}</td><td class="n">${A.length}</td><td class="n" style="${A.some(r => r.esito === 'in_ritardo') ? 'color:var(--red)' : ''}">${A.filter(r => r.esito === 'in_ritardo').length}</td></tr>`; }).join('')}</table>
+    <div class="tsec">Da risolvere · ${aperti.length}</div>
+    ${aperti.length ? `<table class="ttab">${testa}${aperti.map(riga).join('')}</table>` : '<div class="note">Nessun ticket aperto sul fornitore.</div>'}
+    <div class="tsec">Risolti · ultimi 180 giorni</div>
+    ${rr.filter(r => r.risolto_il).length ? `<table class="ttab">${testa}${rr.filter(r => r.risolto_il).sort((a, b) => parseTs(b.risolto_il) - parseTs(a.risolto_il)).map(riga).join('')}</table>` : '<div class="note">Ancora nessun ticket risolto.</div>'}
+    <div class="tsec">Soglie in giorni lavorativi</div>
+    <div class="note">Entro il primo valore è in tempo, fino al secondo è al limite, oltre è in ritardo. HotFix: in tempo solo se risolto lo stesso giorno.</div>
+    <div class="soglie">${PR.filter(p => p !== 'hotfix').map(p => `<span>${PRI_LBL[p]}</span><label>in tempo entro <input type="number" min="0" max="200" step="1" data-s0="${p}" value="${sg[p][0]}"></label><label>al limite entro <input type="number" min="0" max="200" step="1" data-s1="${p}" value="${sg[p][1]}"></label>`).join('')}</div>
+    <div class="acts"><button class="btn sm" id="tmSave">SALVA SOGLIE</button></div>`;
+  $('#tmSave').onclick = async () => {
+    const v = {}; PR.filter(p => p !== 'hotfix').forEach(p => { v[p] = [Number($(`[data-s0="${p}"]`).value), Number($(`[data-s1="${p}"]`).value)]; });
+    await api('/api/tempi/soglie', v); toast('Soglie salvate, tempi ricalcolati'); apriTempi(); refresh();
+  };
+}
+$('#tmX').onclick = () => $('#tm').classList.remove('show');
+
+function apriRisolvi() {
+  $('#rv').classList.add('show');
+  $('#rvBody').innerHTML = `<div class="note">Incolla gli ID DevOps passati in produzione: uno per riga, separati da virgole, o l'intera mail di rilascio. I numeri di almeno 4 cifre vengono riconosciuti da soli.</div>
+    <label class="ef grow1"><textarea id="rvTxt" style="min-height:160px" placeholder="es. 13205, 13210, 13226"></textarea></label>
+    <div class="acts"><span class="grow"></span><button class="btn gold" id="rvGo">CONTINUA</button></div>`;
+  $('#rvTxt').focus();
+  $('#rvGo').onclick = async () => {
+    let d; try { d = await api('/api/risolvi/anteprima', {testo: $('#rvTxt').value}); } catch { return; }
+    const ok = d.righe.filter(r => r.azione);
+    $('#rvBody').innerHTML = `<div class="note">${new Set(d.righe.map(r => r.devops)).size} ID riconosciuti, ${ok.length} da segnare come risolti.</div>
+      <table class="ttab"><tr><th>ID DevOps</th><th>Segnalazione</th><th>Esito</th></tr>${d.righe.map(r => `<tr><td class="cod">${esc(r.devops)}</td><td>${r.codice ? `<span class="cod">${esc(r.codice)}</span> ${esc(r.titolo || '')}` : '—'}</td><td style="${r.azione ? '' : 'color:var(--mute)'}">${esc(r.esito)}</td></tr>`).join('')}</table>
+      <div class="acts"><button class="btn sm" id="rvBack">INDIETRO</button><span class="grow"></span><button class="btn gold" id="rvOk" ${ok.length ? '' : 'disabled'}>CONFERMA${ok.length ? ' (' + ok.length + ')' : ''}</button></div>`;
+    $('#rvBack').onclick = apriRisolvi;
+    $('#rvOk').onclick = async () => {
+      $('#rvOk').disabled = true;
+      try { const r = await api('/api/risolvi', {ids: [...new Set(ok.map(x => x.devops))]}); $('#rv').classList.remove('show'); toast(`${r.risolte} ticket segnati Risolto nel bug tracker`); refresh(); if ($('#tm').classList.contains('show')) apriTempi(); }
+      catch { $('#rvOk').disabled = false; }
+    };
+  };
+}
+$('#rvX').onclick = () => $('#rv').classList.remove('show');
+document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'tempi') apriTempi(); else if (b.dataset.act === 'risolvi') apriRisolvi(); });
+
 function chiudiEditor() { $('#ed').classList.remove('show'); edCur = null; }
 $('#edX').onclick = chiudiEditor;
-addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#ed').classList.contains('show')) chiudiEditor(); $('#bx').classList.remove('show'); } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { if ($('#ed').classList.contains('show')) chiudiEditor(); ['#bx', '#tm', '#rv'].forEach(k => $(k).classList.remove('show')); } });
 
 $('#autoToggle').onclick = async () => {
   const on = !S.impostazioni.auto;
@@ -815,6 +900,18 @@ $('#autoToggle').onclick = async () => {
   toast(on ? 'Avvio automatico attivo' : 'Avvio automatico in pausa'); refresh();
 };
 $('#runBtn').onclick = avviaOra;
+function tickControllo() {
+  const el = $('#syncChip'); if (!el || !S) return;
+  const imp = S.impostazioni, ora = Date.now(), passo = 600000;
+  const prossimo = Math.ceil((ora + 1) / passo) * passo, ultimoSlot = prossimo - passo;
+  const ultimo = imp.ultimoSync ? parseTs(imp.ultimoSync) : 0;
+  let txt;
+  if (ora - ultimoSlot < 90000 && ultimo < ultimoSlot) txt = 'CONTROLLO IN CORSO…';
+  else { const r = Math.max(0, Math.round((prossimo - ora) / 1000)); txt = `PROSSIMO CONTROLLO ${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`; }
+  if (el.textContent !== txt) el.textContent = txt;
+  el.title = imp.ultimoSync ? `Ultimo controllo ${ago(imp.ultimoSync)} · ${imp.syncEsito || ''}` : 'Il bug tracker non è ancora stato controllato';
+}
+setInterval(tickControllo, 1000);
 setInterval(() => { $('#clock').textContent = new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }, 1000);
 
 /* ================= 3D ================= */
@@ -1040,7 +1137,7 @@ function buildScene() {
 
   const reps = S.reparti.slice().sort((a, b) => a.ordine - b.ordine);
   const SP = 14.5;
-  const SLOT = {accettazione: [-1, -1], triage: [0, -1], permessi: [1, -1], redazione: [0.5, 1], revisione: [-0.5, 1]};
+  const SLOT = {accettazione: [-1, -1], triage: [0, -1], permessi: [1, -1], redazione: [0.5, 1], revisione: [-0.5, 1], monitoraggio: [1.5, 1]};
   const liberi = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]].filter(sl => !Object.values(SLOT).some(v => v[0] === sl[0] && v[1] === sl[1]));
   const usati = new Set();
   reps.forEach(r => {
@@ -1248,7 +1345,7 @@ function updateCards() {
   });
 }
 
-const WIRES = {bug: ['accettazione'], d1: ['brain'], claude: ['brain', 'triage', 'permessi', 'redazione']};
+const WIRES = {bug: ['accettazione', 'monitoraggio'], d1: ['brain'], claude: ['brain', 'triage', 'permessi', 'redazione', 'monitoraggio']};
 const WCOL = {bug: '#ff9db0', d1: '#f38020', claude: '#d97757'};
 let wireEls = [], wireOff = 0;
 function buildWires() {

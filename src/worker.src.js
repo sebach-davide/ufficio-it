@@ -90,7 +90,8 @@ async function sincronizza(env) {
     }
   }
   const nAll = await sincronizzaAllegati(env);
-  const aperti = [...gia.entries()].filter(([, r]) => !['inviata', 'scartata'].includes(r.stato)).map(([id]) => id);
+  const segT = await db.prepare("SELECT ticket_id FROM segnalazioni WHERE stato != 'scartata' AND (ticket_stato IS NULL OR ticket_stato NOT IN ('risolto','respinto'))").all();
+  const aperti = segT.results.map(r => r.ticket_id);
   for (let i = 0; i < aperti.length; i += 50) {
     const ids = aperti.slice(i, i + 50);
     const st = await bugs.prepare(`SELECT id, status FROM tickets WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
@@ -189,6 +190,95 @@ async function respingiSuBugTracker(env, ticketId, motivo) {
   return { ok: true, esito: 'ticket respinto', stato: 'respinto' };
 }
 
+const PRIORITA = ['hotfix', 'bloccante', 'alta', 'media', 'bassa'];
+const SOGLIE_DEFAULT = { hotfix: [0, 0], bloccante: [5, 5], alta: [5, 10], media: [10, 15], bassa: [20, 20] };
+
+async function soglie(env) {
+  let v = {};
+  try { v = JSON.parse((await getImp(env, 'soglie')) || '{}'); } catch {}
+  const out = {};
+  for (const p of PRIORITA) {
+    const x = Array.isArray(v[p]) ? v[p] : SOGLIE_DEFAULT[p];
+    out[p] = [Math.max(0, Number(x[0]) || 0), Math.max(Number(x[0]) || 0, Number(x[1]) || 0)];
+  }
+  return out;
+}
+
+const fmtRoma = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' });
+function giornoRoma(ms) { return fmtRoma.format(new Date(ms)); }
+function msSql(t) { return t ? Date.parse(String(t).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? '' : 'Z')) : NaN; }
+
+function giorniLavorativi(da, a) {
+  if (!(a > da)) return 0;
+  let tot = 0, t = da;
+  while (t < a) {
+    const d = new Date(t);
+    const fine = Math.min(a, Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+    const g = d.getUTCDay();
+    if (g !== 0 && g !== 6) tot += fine - t;
+    t = fine;
+  }
+  return tot / 86400000;
+}
+
+function esitoTempi(prio, apertoMs, fineMs, S) {
+  if (prio === 'hotfix') return giornoRoma(fineMs) === giornoRoma(apertoMs) ? 'in_tempo' : 'in_ritardo';
+  const [ok, lim] = S[prio] || S.media;
+  const gg = giorniLavorativi(apertoMs, fineMs);
+  return gg <= ok ? 'in_tempo' : gg <= lim ? 'al_limite' : 'in_ritardo';
+}
+
+async function aggiornaTempi(env) {
+  const db = env.DB, bugs = env.BUGS;
+  if (!bugs) return 0;
+  const S = await soglie(env);
+  const { results: tk } = await bugs.prepare("SELECT id, code, type, title, area, severity, status, devops_id, created_at, status_at FROM tickets WHERE status IN ('aperto','approvato','sospesa','risolto') OR devops_id IS NOT NULL").all();
+  const { results: nt } = await bugs.prepare("SELECT ticket_id, body, created_at FROM notes WHERE system = 1 AND (body LIKE '%a «Aperto»%' OR body LIKE '%a «Risolto»%' OR body LIKE '%a «Sospesa»%') ORDER BY id").all();
+  const { results: us } = await db.prepare("SELECT s.ticket_id, s.modulo, u.priorita, u.inviata_il FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE u.stato = 'inviata'").all();
+  const nostro = new Map(us.map(r => [r.ticket_id, r]));
+  const storia = new Map();
+  for (const n of nt) {
+    const h = storia.get(n.ticket_id) || {};
+    if (/a «Aperto»/.test(n.body) && !h.aperto) h.aperto = n.created_at;
+    if (/a «Sospesa»/.test(n.body) && !h.aperto) h.aperto = n.created_at;
+    if (/a «Risolto»/.test(n.body)) h.risolto = n.created_at;
+    storia.set(n.ticket_id, h);
+  }
+  const ora = Date.now();
+  const stm = [db.prepare('DELETE FROM tempi')];
+  for (const t of tk) {
+    if (['nuovo', 'preso_in_carico', 'respinto'].includes(t.status)) continue;
+    const h = storia.get(t.id) || {};
+    const ns = nostro.get(t.id);
+    const apertoIl = h.aperto || (ns && ns.inviata_il) || t.status_at || t.created_at;
+    const risoltoIl = t.status === 'risolto' ? (h.risolto || t.status_at) : null;
+    const prio = ns && PRIORITA.includes(ns.priorita) ? ns.priorita : (PRIORITA.includes(t.severity) ? t.severity : 'media');
+    const am = msSql(apertoIl), rm = risoltoIl ? msSql(risoltoIl) : ora;
+    const ggF = giorniLavorativi(am, rm);
+    const ggN = giorniLavorativi(msSql(t.created_at), am);
+    const esito = t.status === 'sospesa' ? 'sospesa' : esitoTempi(prio, am, rm, S);
+    stm.push(db.prepare('INSERT INTO tempi (ticket_id, codice, titolo, tipo, modulo, priorita, fonte_priorita, devops_id, stato, creato, aperto_il, risolto_il, gg_nostri, gg_fornitore, esito) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)')
+      .bind(t.id, t.code, t.title, t.type, (ns && ns.modulo) || t.area, prio, ns ? 'ufficio-it' : 'bug tracker', t.devops_id, t.status, t.created_at, apertoIl, risoltoIl, Math.round(ggN * 10) / 10, Math.round(ggF * 10) / 10, esito));
+  }
+  await db.batch(stm);
+  await setImp(env, 'ultimi_tempi', new Date().toISOString());
+  return tk.length;
+}
+
+async function anteprimaRisolti(env, testo) {
+  const ids = [...new Set(String(testo || '').match(/\d{4,}/g) || [])].slice(0, 200);
+  const righe = [];
+  for (const id of ids) {
+    const { results } = await env.BUGS.prepare('SELECT id, code, title, status FROM tickets WHERE devops_id = ?1').bind(id).all();
+    if (!results.length) { righe.push({ devops: id, esito: 'Nessuna segnalazione con questo ID', azione: false }); continue; }
+    for (const t of results) {
+      const e = t.status === 'risolto' ? ['Già risolta', false] : t.status === 'respinto' ? ['Era stata respinta: da controllare a mano', false] : [`Verrà segnata come risolta (oggi: ${ET_STATO[t.status] || t.status})`, true];
+      righe.push({ devops: id, ticket_id: t.id, codice: t.code, titolo: t.title, stato: t.status, esito: e[0], azione: e[1] });
+    }
+  }
+  return righe;
+}
+
 async function lavoroInCoda(env) {
   return await env.DB.prepare(`SELECT
     (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'nuova') AS segnalazioni,
@@ -248,6 +338,10 @@ async function controllo(env, motivo, forza) {
     await setImp(env, 'ultimo_sync_esito', 'errore: ' + txt(e.message || e, 200));
     sync = { errore: String(e.message || e) };
   }
+  try {
+    const ut = await getImp(env, 'ultimi_tempi');
+    if (forza || !ut || Date.now() - Date.parse(ut) > 55 * 60000) await aggiornaTempi(env);
+  } catch (e) { console.error('tempi', e); }
   const coda = await lavoroInCoda(env);
   const daFare = coda.segnalazioni + coda.task + coda.chat + coda.modifiche;
   if (!forza && ((await getImp(env, 'auto')) !== '1' || !daFare)) return { sync, coda, avvio: null };
@@ -279,7 +373,12 @@ async function stato(env) {
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata') AS inviate,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata' AND modificata = 1) AS inviateModificate,
       (SELECT COUNT(*) FROM modifiche WHERE analizzata = 0) AS modificheDaStudiare,
-      (SELECT COUNT(*) FROM brain WHERE tipo = 'lezione' AND attivo = 1) AS lezioni`).first(),
+      (SELECT COUNT(*) FROM brain WHERE tipo = 'lezione' AND attivo = 1) AS lezioni,
+      (SELECT COUNT(*) FROM tempi WHERE risolto_il IS NULL AND esito = 'in_ritardo') AS inRitardo,
+      (SELECT COUNT(*) FROM tempi WHERE risolto_il IS NULL AND stato != 'sospesa') AS daRisolvere,
+      (SELECT COUNT(*) FROM tempi WHERE risolto_il > datetime('now','-30 days')) AS risolti30,
+      (SELECT COUNT(*) FROM tempi WHERE risolto_il > datetime('now','-90 days') AND esito = 'in_tempo') AS inTempo90,
+      (SELECT COUNT(*) FROM tempi WHERE risolto_il > datetime('now','-90 days')) AS risolti90`).first(),
     db.prepare('SELECT tipo, COUNT(*) AS n FROM brain WHERE attivo = 1 GROUP BY tipo').all(),
     db.prepare("SELECT reparto_id, COUNT(*) AS n FROM chat WHERE mittente = 'agente' AND stato = 'nuovo' GROUP BY reparto_id").all(),
     db.prepare("SELECT chiave, valore, aggiornato FROM impostazioni WHERE chiave IN ('auto','ultimo_sync','ultimo_sync_esito','ultimo_avvio','avvio_esito','ultima_sessione')").all()
@@ -313,7 +412,7 @@ async function snapshotAgente(env, u) {
 function valoriUscita(b) {
   return {
     tipo: ['BUG', 'CR'].includes(b.tipo) ? b.tipo : 'BUG',
-    priorita: txt(b.priorita, 40),
+    priorita: PRIORITA.includes(b.priorita) ? b.priorita : 'media',
     titolo: txt(b.titolo, 300).trim(),
     testo: txt(b.testo, 40000)
   };
@@ -329,6 +428,57 @@ async function apiDashboard(req, env, url, ctx) {
   if (p === '/api/avvia' && m === 'POST') {
     const r = await controllo(env, 'forzato da Davide', true);
     return json(r);
+  }
+
+  if (p === '/api/risolvi/anteprima' && m === 'POST') {
+    if (!env.BUGS) return json({ errore: 'Bug tracker non collegato' }, 500);
+    const b = await body(req);
+    const righe = await anteprimaRisolti(env, b.testo);
+    if (!righe.length) return json({ errore: 'Non trovo nessun ID DevOps nel testo incollato (servono almeno 4 cifre)' }, 400);
+    return json({ righe });
+  }
+
+  if (p === '/api/risolvi' && m === 'POST') {
+    if (!env.BUGS) return json({ errore: 'Bug tracker non collegato' }, 500);
+    const b = await body(req);
+    const righe = (await anteprimaRisolti(env, (b.ids || []).join(' '))).filter(r => r.azione);
+    const u = await utenteBug(env);
+    const fatte = [];
+    for (const r of righe) {
+      const ch = await env.BUGS.prepare("UPDATE tickets SET status = 'risolto', reject_reason = NULL, status_by = ?2, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1 AND status NOT IN ('risolto','respinto')").bind(r.ticket_id, u.id).run();
+      if (!ch.meta.changes) continue;
+      await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(r.ticket_id, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[r.stato] || r.stato}» a «Risolto».`).run();
+      await db.prepare("UPDATE segnalazioni SET ticket_stato = 'risolto' WHERE ticket_id = ?1").bind(r.ticket_id).run();
+      fatte.push(r.codice || '#' + r.ticket_id);
+    }
+    if (fatte.length) await evento(env, 'monitoraggio', 'mon-lead', 'risolti', `${fatte.length} ticket segnati Risolto: ${fatte.join(', ')}`);
+    try { await aggiornaTempi(env); } catch (e) { console.error(e); }
+    return json({ ok: true, risolte: fatte.length, codici: fatte });
+  }
+
+  if (p === '/api/tempi' && m === 'GET') {
+    const S = await soglie(env);
+    const [righe, rep, ut] = await Promise.all([
+      db.prepare("SELECT * FROM tempi WHERE risolto_il IS NULL OR risolto_il > datetime('now','-180 days') ORDER BY (risolto_il IS NULL) DESC, gg_fornitore DESC").all(),
+      db.prepare('SELECT id, periodo, testo, creato FROM report ORDER BY id DESC LIMIT 1').first(),
+      getImp(env, 'ultimi_tempi')
+    ]);
+    return json({ soglie: S, righe: righe.results, report: rep, aggiornato: ut });
+  }
+
+  if (p === '/api/tempi/soglie' && m === 'POST') {
+    const b = await body(req);
+    const v = {};
+    for (const k of PRIORITA) {
+      const x = b[k];
+      if (!Array.isArray(x)) continue;
+      const a = Math.max(0, Math.min(200, Number(x[0]) || 0)), c = Math.max(a, Math.min(200, Number(x[1]) || 0));
+      v[k] = [a, c];
+    }
+    await setImp(env, 'soglie', JSON.stringify({ ...(await soglie(env)), ...v }));
+    await aggiornaTempi(env);
+    await evento(env, 'monitoraggio', 'mon-lead', 'impostazioni', 'Soglie dei tempi aggiornate da Davide');
+    return json({ ok: true });
   }
 
   if (p === '/api/impostazioni' && m === 'POST') {

@@ -9,7 +9,7 @@ Parte quando il Worker trova lavoro (controllo ogni 10 minuti) o quando Davide p
    Poi decidi il tipo BUG o CR.
    - Regola fissa: se l'errore si presenta anche su Sebach Pro (pro_check='anche_su_pro') è una CR.
    - Una funzione mai prevista o una richiesta di cambiamento è una CR; un malfunzionamento di qualcosa che dovrebbe già funzionare è un BUG.
-   Scrivi tipo, tipo_motivo (una riga), modulo (area o funzione di Sebach Plus) e priorita tra bloccante, alta, media, bassa: parti dalla gravità indicata dall'utente (severita) e correggila se il testo dice altro (es. "non è bloccante").
+   Scrivi tipo, tipo_motivo (una riga), modulo (area o funzione di Sebach Plus) e priorita tra hotfix, bloccante, alta, media, bassa (hotfix solo se va risolto in giornata: il ticket lo dice esplicitamente oppure blocca il lavoro di tutti, per esempio fatturazione o accesso al gestionale ferma): parti dalla gravità indicata dall'utente (severita) e correggila se il testo dice altro (es. "non è bloccante").
 
 3. Permessi (per-lead, per-prof): valuta se la causa può essere un problema di ruoli, profili o permessi utente. Segnali tipici: succede solo con un certo utente o profilo (es. concessionario, area C-), errori di permesso o di accesso, campi o tabelle non visibili o non modificabili, funziona per altri utenti. Usa documenti e nozioni del Brain sui profili. Imposta permessi a 'probabile', 'possibile' o 'escluso' e scrivi in permessi_analisi 2-4 righe: perché, quale profilo o permesso controllare, quale documento del Brain hai usato. Se per decidere ti manca un documento che nel Brain non c'è, dillo chiaramente.
 
@@ -25,4 +25,6 @@ Parte quando il Worker trova lavoro (controllo ogni 10 minuti) o quando Davide p
 
 6. Task e chat di Davide: SELECT * FROM task WHERE origine='davide' AND stato='backlog' e SELECT * FROM chat WHERE mittente='davide' AND stato='nuovo'. Rispondi come lead del reparto con INSERT INTO chat (reparto_id, mittente, testo, stato) VALUES (<reparto>, 'agente', <risposta>, 'nuovo'), poi segna il messaggio di Davide con stato='letto'. Esegui i task e chiudili con un dettaglio. Risposte brevi e dirette.
 
-7. Fine: evento fine_turno.
+7. Monitoraggio (mon-lead), report settimanale sul fornitore: solo se oggi è lunedì (ora italiana) e nella tabella report non c'è una riga creata negli ultimi 6 giorni. La tabella tempi è aggiornata dal Worker: un ticket per riga, priorita, modulo, aperto_il, risolto_il, gg_fornitore (giorni lavorativi da Aperto a Risolto, o fino a oggi se ancora aperto), gg_nostri (dall'apertura dell'utente all'invio), esito (in_tempo, al_limite, in_ritardo, sospesa). Non toccarla. Analizza: risolti della settimana scorsa e degli ultimi 90 giorni, mediana per priorità confrontata con le settimane precedenti, ticket aperti oltre soglia (quanti, da quanto, quali), moduli più lenti, eventuali hotfix non chiusi in giornata. Scrivi 4-8 righe semplici e dirette in italiano: giudizio complessivo (il fornitore sta lavorando bene o no, e perché, con i numeri), cosa è peggiorato o migliorato, quali ticket guardare. Niente solleciti e niente testi da mandare al fornitore. INSERT INTO report (tipo, periodo, testo) VALUES ('fornitore', 'settimana del <data lunedì scorso>', <testo>), poi un evento con tipo report. Se non ci sono dati sufficienti, scrivilo in una riga.
+
+8. Fine: evento fine_turno.
