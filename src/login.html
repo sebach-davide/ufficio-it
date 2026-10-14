@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1e2e">
+<title>Ufficio IT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1c1e2e;--panel:#272a3e;--line:rgba(255,255,255,.09);--ink:#ece8dc;--mute:#9497ad;--gold:#e3b341}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif}
+body{display:grid;place-items:center;background:radial-gradient(1200px 600px at 50% 120%,#2b2f4a 0,var(--bg) 60%)}
+.card{width:min(360px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px 24px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:30px;margin:0 0 4px;letter-spacing:.5px}
+p{margin:0 0 22px;color:var(--mute);font:500 11px 'IBM Plex Mono',monospace;letter-spacing:1.4px;text-transform:uppercase}
+input{width:100%;padding:13px 14px;border-radius:11px;border:1px solid var(--line);background:#1f2133;color:var(--ink);font-size:15px;outline:none}
+input:focus{border-color:var(--gold)}
+button{margin-top:12px;width:100%;padding:13px;border:0;border-radius:11px;background:var(--gold);color:#1c1e2e;font-weight:600;font-size:15px;cursor:pointer}
+.err{min-height:18px;margin-top:10px;color:#ff8a8a;font-size:13px}
+</style>
+</head>
+<body>
+<form class="card" id="f">
+  <h1>Ufficio IT</h1>
+  <p>Sebach · accesso</p>
+  <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autofocus>
+  <button type="submit">Entra</button>
+  <div class="err" id="e"></div>
+</form>
+<script>
+document.getElementById('f').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const e = document.getElementById('e');
+  e.textContent = '';
+  const r = await fetch('/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({password: document.getElementById('pw').value})});
+  if (r.ok) location.reload(); else e.textContent = 'Password errata';
+});
+</script>
+</body>
+</html>
