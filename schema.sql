@@ -34,3 +34,4 @@ INSERT OR IGNORE INTO agenti (id, reparto_id, nome, ruolo, lead) VALUES
 ('rev-davide', 'revisione', 'Davide', 'Rivede, modifica e invia', 1);
 INSERT OR IGNORE INTO impostazioni (chiave, valore) VALUES ('auto', '1');
 INSERT OR IGNORE INTO eventi (id, tipo, messaggio) VALUES (1, 'info', 'Ufficio IT creato. Primo reparto: Segnalazioni Sebach Plus.');
+CREATE TABLE IF NOT EXISTS allegati (id INTEGER PRIMARY KEY AUTOINCREMENT, segnalazione_id INTEGER, ticket_id INTEGER NOT NULL, origine_id INTEGER UNIQUE, nome TEXT, mime TEXT, size INTEGER, data TEXT, creato TEXT DEFAULT (datetime('now')));

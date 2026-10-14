@@ -219,6 +219,7 @@ main{position:relative;overflow:hidden;min-height:0}
 .ofield>span{font:600 9.5px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute)}
 .ofield>div{white-space:pre-wrap;word-wrap:break-word}
 .erow{display:flex;gap:8px;flex-wrap:wrap}
+.allg{display:flex;flex-wrap:wrap;gap:8px;white-space:normal!important}.allg img{height:84px;max-width:150px;object-fit:cover;border-radius:8px;border:1px solid var(--line2);display:block}.allg .afile{color:var(--blue);text-decoration:none;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px}.allg small{color:var(--mute)}
 .ef{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ef>span{font:600 9.5px var(--mono);letter-spacing:1px;text-transform:uppercase;color:var(--mute)}
 .ef input,.ef select,.ef textarea{padding:10px 11px;border-radius:10px;border:1px solid var(--line);background:#1f2133;color:var(--ink);font:13px var(--sans);outline:none}
@@ -738,7 +739,7 @@ async function apriEditor(id) {
     ${campoOrig('Titolo', s.titolo_originale)}${campoOrig('Tipo', s.tipo_originale)}${campoOrig('Area', s.area)}${campoOrig('Cosa stava facendo', s.operazione)}${campoOrig('Errore', s.errore)}${campoOrig('Atteso', s.atteso)}${campoOrig('Documento', s.documento)}
     ${campoOrig('Su Sebach Pro', PRO_LBL[s.pro_check] || s.pro_check)}${campoOrig('Gravità indicata', s.severita)}${s.senza_messaggio ? campoOrig('Messaggio a video', 'nessun messaggio di errore') : ''}${campoOrig('Tag', s.tag)}
     ${note.length ? `<div class="ofield"><span>Note nel ticket</span><div>${note.map(n => `${esc(n.autore || '')}: ${esc(n.body)}`).join('<br>')}</div></div>` : ''}
-    ${all.length ? campoOrig('Allegati', all.map(a => a.filename).join(', ')) : ''}
+    ${(d.allegati || []).length ? `<div class="ofield"><span>Allegati</span><div class="allg">${d.allegati.map(a => /^image\/(png|jpeg|gif|webp)$/.test(a.mime) ? `<a href="/api/allegati/${a.id}" target="_blank" rel="noopener" title="${esc(a.nome)}"><img src="/api/allegati/${a.id}" alt="${esc(a.nome)}" loading="lazy"></a>` : `<a class="afile" href="/api/allegati/${a.id}" target="_blank" rel="noopener">📎 ${esc(a.nome)} <small>${Math.max(1, Math.round((a.size || 0) / 1024))} KB</small></a>`).join('')}</div></div>` : all.length ? campoOrig('Allegati', all.map(a => a.filename).join(', ') + ' (in copia al prossimo controllo)') : ''}
     <div class="cap" style="margin-top:14px">Analisi degli agenti</div>
     ${campoOrig('Tipo proposto', s.tipo ? s.tipo + (s.tipo_motivo ? ' · ' + s.tipo_motivo : '') : '')}${campoOrig('Modulo', s.modulo)}${campoOrig('Priorità', s.priorita)}
     ${pm ? `<div class="ofield"><span>Permessi</span><div><b class="tk ${pm[1]}">${pm[0]}</b><br>${esc(s.permessi_analisi || '')}</div></div>` : ''}

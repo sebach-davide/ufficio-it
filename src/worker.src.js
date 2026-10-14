@@ -89,6 +89,7 @@ async function sincronizza(env) {
       aggiornate++;
     }
   }
+  const nAll = await sincronizzaAllegati(env);
   const aperti = [...gia.entries()].filter(([, r]) => !['inviata', 'scartata'].includes(r.stato)).map(([id]) => id);
   for (let i = 0; i < aperti.length; i += 50) {
     const ids = aperti.slice(i, i + 50);
@@ -96,8 +97,38 @@ async function sincronizza(env) {
     for (const r of st.results) await db.prepare('UPDATE segnalazioni SET ticket_stato = ?2 WHERE ticket_id = ?1 AND ticket_stato IS NOT ?2').bind(r.id, r.status).run();
   }
   await setImp(env, 'ultimo_sync', new Date().toISOString());
-  await setImp(env, 'ultimo_sync_esito', `ok · ${results.length} in stato nuovo · ${nuove} importati${aggiornate ? ' · ' + aggiornate + ' aggiornati' : ''}`);
+  await setImp(env, 'ultimo_sync_esito', `ok · ${results.length} in stato nuovo · ${nuove} importati${aggiornate ? ' · ' + aggiornate + ' aggiornati' : ''}${nAll ? ' · ' + nAll + ' allegati' : ''}`);
   return { nuove, aggiornate, inNuovo: results.length };
+}
+
+async function sincronizzaAllegati(env) {
+  const db = env.DB, bugs = env.BUGS;
+  const { results: segs } = await db.prepare("SELECT id, ticket_id, codice, stato, creato FROM segnalazioni WHERE stato NOT IN ('inviata','scartata')").all();
+  if (!segs.length) return 0;
+  const perTicket = new Map(segs.map(x => [x.ticket_id, x]));
+  const { results: gia } = await db.prepare('SELECT origine_id FROM allegati').all();
+  const presenti = new Set(gia.map(r => r.origine_id));
+  const ids = [...perTicket.keys()];
+  let copiati = 0;
+  const riaperte = new Set();
+  for (let i = 0; i < ids.length; i += 50) {
+    const blocco = ids.slice(i, i + 50);
+    const { results } = await bugs.prepare(`SELECT id, ticket_id, filename, mime, size, created_at FROM attachments WHERE ticket_id IN (${blocco.map(() => '?').join(',')}) ORDER BY id`).bind(...blocco).all();
+    for (const a of results) {
+      if (presenti.has(a.id)) continue;
+      const d = await bugs.prepare('SELECT data FROM attachments WHERE id = ?1').bind(a.id).first();
+      if (!d) continue;
+      const sg = perTicket.get(a.ticket_id);
+      await db.prepare('INSERT OR IGNORE INTO allegati (segnalazione_id, ticket_id, origine_id, nome, mime, size, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)').bind(sg.id, a.ticket_id, a.id, a.filename, a.mime, a.size, d.data).run();
+      copiati++;
+      if (sg.stato === 'pronta' && a.created_at > sg.creato && !riaperte.has(sg.id)) {
+        riaperte.add(sg.id);
+        await db.prepare("UPDATE segnalazioni SET stato = 'nuova', note_agenti = COALESCE(note_agenti, '') || ' [nuovo allegato nel bug tracker: da rivedere]', aggiornato = datetime('now') WHERE id = ?1").bind(sg.id).run();
+        await evento(env, 'accettazione', 'acc-lead', 'ticket', `Nuovo allegato su ${sg.codice || '#' + sg.ticket_id}: torna in lavorazione`);
+      }
+    }
+  }
+  return copiati;
 }
 
 async function utenteBug(env) {
@@ -306,7 +337,17 @@ async function apiDashboard(req, env, url, ctx) {
     if (!s) return json({ errore: 'Segnalazione non trovata' }, 404);
     const u = await db.prepare('SELECT * FROM uscite WHERE segnalazione_id = ?1').bind(s.id).first();
     const mod = u ? await db.prepare('SELECT id, campo, prima, dopo, analizzata, creato FROM modifiche WHERE uscita_id = ?1 ORDER BY id').bind(u.id).all() : { results: [] };
-    return json({ segnalazione: s, uscita: u, modifiche: mod.results });
+    const al = await db.prepare('SELECT id, nome, mime, size FROM allegati WHERE segnalazione_id = ?1 ORDER BY id').bind(s.id).all();
+    return json({ segnalazione: s, uscita: u, modifiche: mod.results, allegati: al.results });
+  }
+
+  mm = p.match(/^\/api\/allegati\/(\d+)$/);
+  if (mm && m === 'GET') {
+    const a = await db.prepare('SELECT nome, mime, data FROM allegati WHERE id = ?1').bind(Number(mm[1])).first();
+    if (!a) return json({ errore: 'Allegato non trovato' }, 404);
+    const bin = Uint8Array.from(atob(a.data), c => c.charCodeAt(0));
+    const sicuro = /^(image\/(png|jpeg|gif|webp)|application\/pdf|text\/plain)$/.test(a.mime || '');
+    return new Response(bin, { headers: { 'content-type': sicuro ? a.mime : 'application/octet-stream', 'content-disposition': `${sicuro ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(a.nome || 'allegato')}`, 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=3600' } });
   }
 
   mm = p.match(/^\/api\/segnalazioni\/(\d+)\/rifai$/);
