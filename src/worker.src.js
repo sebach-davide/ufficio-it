@@ -179,6 +179,16 @@ async function apriSuBugTracker(env, ticketId, devopsId, tipo) {
   return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
 }
 
+async function respingiSuBugTracker(env, ticketId, motivo) {
+  const t = await env.BUGS.prepare('SELECT id, status FROM tickets WHERE id = ?1').bind(ticketId).first();
+  if (!t) return { ok: false, esito: 'ticket non trovato nel bug tracker' };
+  if (!['nuovo', 'preso_in_carico'].includes(t.status)) return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
+  const u = await utenteBug(env);
+  await env.BUGS.prepare("UPDATE tickets SET status = 'respinto', reject_reason = ?2, status_by = ?3, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1").bind(ticketId, motivo, u.id).run();
+  await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[t.status] || t.status}» a «Respinto». Motivazione del rifiuto: «${motivo}»`).run();
+  return { ok: true, esito: 'ticket respinto', stato: 'respinto' };
+}
+
 async function lavoroInCoda(env) {
   return await env.DB.prepare(`SELECT
     (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'nuova') AS segnalazioni,
@@ -373,11 +383,17 @@ async function apiDashboard(req, env, url, ctx) {
     const s = await db.prepare('SELECT id, codice, ticket_id FROM segnalazioni WHERE id = ?1').bind(u.segnalazione_id).first();
     const nome = s ? (s.codice || '#' + s.ticket_id) : '#' + u.segnalazione_id;
     if (mm[2] === 'scarta') {
-      await db.prepare("UPDATE uscite SET stato = 'scartata', motivo = ?2, aggiornato = datetime('now') WHERE id = ?1").bind(u.id, txt(b.motivo, 1000) || null).run();
-      await db.prepare("UPDATE segnalazioni SET stato = 'scartata', aggiornato = datetime('now') WHERE id = ?1").bind(u.segnalazione_id).run();
-      if (b.motivo) await db.prepare("INSERT INTO modifiche (uscita_id, segnalazione_id, campo, prima, dopo) VALUES (?1, ?2, 'scartata', NULL, ?3)").bind(u.id, u.segnalazione_id, txt(b.motivo, 1000)).run();
-      await evento(env, 'revisione', 'rev-davide', 'revisione', `${nome} scartata da Davide${b.motivo ? ': ' + txt(b.motivo, 200) : ''}`);
-      return json({ ok: true });
+      const motivo = txt(b.motivo, 1000).trim();
+      if (motivo.length < 10) return json({ errore: 'Scrivi una motivazione di almeno 10 caratteri: finisce nel bug tracker' }, 400);
+      const sg = await db.prepare('SELECT ticket_id FROM segnalazioni WHERE id = ?1').bind(u.segnalazione_id).first();
+      let bt = { ok: false, esito: 'bug tracker non collegato' };
+      try { if (env.BUGS && sg) bt = await respingiSuBugTracker(env, sg.ticket_id, motivo); }
+      catch (e) { bt = { ok: false, esito: 'errore: ' + txt(e.message || e, 200) }; }
+      await db.prepare("UPDATE uscite SET stato = 'scartata', motivo = ?2, aggiornato = datetime('now') WHERE id = ?1").bind(u.id, motivo).run();
+      await db.prepare("UPDATE segnalazioni SET stato = 'scartata', ticket_stato = COALESCE(?2, ticket_stato), aggiornato = datetime('now') WHERE id = ?1").bind(u.segnalazione_id, bt.stato || null).run();
+      await db.prepare("INSERT INTO modifiche (uscita_id, segnalazione_id, campo, prima, dopo) VALUES (?1, ?2, 'scartata', NULL, ?3)").bind(u.id, u.segnalazione_id, motivo).run();
+      await evento(env, 'revisione', 'rev-davide', bt.ok ? 'revisione' : 'allarme', `${nome} scartata: ${txt(motivo, 200)} · bug tracker: ${bt.esito}`);
+      return json({ ok: true, bugTracker: bt });
     }
     const agente = await snapshotAgente(env, u);
     const v = valoriUscita(b);

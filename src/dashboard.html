@@ -765,7 +765,8 @@ async function apriEditor(id) {
         <button class="btn sm" id="edCopy">COPIA</button>
         ${chiusa ? '' : `<button class="btn sm" id="edSave">SALVA BOZZA</button><button class="btn sm" id="edRedo">RIFAI CON NOTA</button><button class="btn red sm" id="edDrop">SCARTA</button><span class="grow"></span><button class="btn gold" id="edSend">INVIA</button>`}
       </div>
-      <div id="edRedoBox" class="hidden"><textarea class="field" id="edRedoTxt" placeholder="Cosa deve cambiare? Es. è un problema di permessi del profilo C-, non un bug" style="width:100%;min-height:70px"></textarea><div class="acts"><button class="btn gold sm" id="edRedoOk">RIMANDA AGLI AGENTI</button></div></div>`;
+      <div id="edRedoBox" class="hidden"><textarea class="field" id="edRedoTxt" placeholder="Cosa deve cambiare? Es. è un problema di permessi del profilo C-, non un bug" style="width:100%;min-height:70px"></textarea><div class="acts"><button class="btn gold sm" id="edRedoOk">RIMANDA AGLI AGENTI</button></div></div>
+      <div id="edDropBox" class="hidden"><textarea class="field" id="edDropTxt" maxlength="1000" placeholder="Motivazione del rifiuto: la legge chi ha aperto il ticket nel bug tracker" style="width:100%;min-height:70px"></textarea><div class="acts"><button class="btn red sm" id="edDropOk">SCARTA E RESPINGI</button></div></div>`;
     $('#edTipo').value = u.tipo || s.tipo || 'BUG';
     $('#edPri').value = u.priorita || s.priorita || s.severita || 'media';
     $('#edTit').value = u.titolo || '';
@@ -775,11 +776,17 @@ async function apriEditor(id) {
     $('#edCopy').onclick = async () => { const v = vals(); try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); toast('Copiato negli appunti'); } catch { toast('Copia non riuscita'); } };
     if (!chiusa) {
       $('#edSave').onclick = async () => { await api(`/api/uscite/${u.id}/salva`, vals()); toast('Bozza salvata'); refresh(); };
-      $('#edDrop').onclick = async () => {
-        if (!(await ask('Scartare la segnalazione?', 'Non verrà inviata e sparisce dalla Revisione. Nel bug tracker resta com\'è.', 'Scarta'))) return;
-        await api(`/api/uscite/${u.id}/scarta`, {motivo: ''}); chiudiEditor(); toast('Scartata'); refresh();
+      $('#edDrop').onclick = () => { $('#edRedoBox').classList.add('hidden'); $('#edDropBox').classList.toggle('hidden'); $('#edDropTxt').focus(); };
+      $('#edDropOk').onclick = async () => {
+        const motivo = $('#edDropTxt').value.trim();
+        if (motivo.length < 10) { toast('Scrivi una motivazione di almeno 10 caratteri'); $('#edDropTxt').focus(); return; }
+        if (!(await ask('Scartare e respingere?', `Il ticket ${s.codice || ''} diventa Respinto nel bug tracker con questa motivazione, visibile a chi l'ha aperto.`, 'Scarta e respingi'))) return;
+        const r = await api(`/api/uscite/${u.id}/scarta`, {motivo});
+        chiudiEditor();
+        toast(r.bugTracker && r.bugTracker.ok ? 'Scartata · ticket respinto nel bug tracker' : `Scartata, ma bug tracker: ${(r.bugTracker && r.bugTracker.esito) || 'non aggiornato'}`);
+        refresh();
       };
-      $('#edRedo').onclick = () => { $('#edRedoBox').classList.toggle('hidden'); $('#edRedoTxt').focus(); };
+      $('#edRedo').onclick = () => { $('#edDropBox').classList.add('hidden'); $('#edRedoBox').classList.toggle('hidden'); $('#edRedoTxt').focus(); };
       $('#edRedoOk').onclick = async () => { const nota = $('#edRedoTxt').value.trim(); if (!nota) { toast('Scrivi cosa deve cambiare'); return; } await api(`/api/segnalazioni/${s.id}/rifai`, {nota}); chiudiEditor(); toast('Rimandata agli agenti'); refresh(); };
       $('#edSend').onclick = async () => {
         const v = vals();
