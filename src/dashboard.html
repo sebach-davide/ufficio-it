@@ -576,7 +576,7 @@ function segItem(s, conAzione) {
   return `<div class="titem ${s.stato === 'pronta' ? 'wait' : ''} clic" data-seg="${s.id}"><span class="pill ${c}">${s.uscita_stato === 'bozza' && s.stato === 'pronta' ? 'BOZZA' : l}</span><div>
     <div class="t">${esc(titolo)}</div>
     <div class="m">${esc(s.codice || '#' + s.ticket_id)} · ${esc(s.tipo || s.tipo_originale || '')}${s.priorita ? ' · ' + esc(s.priorita) : s.severita ? ' · ' + esc(s.severita) : ''} · ${esc(s.autore || '')} · ${ago(s.aggiornato)}</div>
-    <div>${pm && s.permessi !== 'escluso' ? `<span class="tk ${pm[1]}">${pm[0]}</span>` : ''}${s.doppione_di ? `<span class="tk">DOPPIONE DI #${esc(s.doppione_di)}</span>` : ''}${s.ticket_stato ? `<span class="tk">BT: ${esc(TK_LBL[s.ticket_stato] || s.ticket_stato)}</span>` : ''}${s.modificata ? '<span class="tk" style="color:var(--gold)">CORRETTA DA TE</span>' : ''}</div>
+    <div>${pm && s.permessi !== 'escluso' ? `<span class="tk ${pm[1]}">${pm[0]}</span>` : ''}${s.doppione_di ? `<span class="tk">DOPPIONE DI #${esc(s.doppione_di)}</span>` : ''}${s.respingi_motivo ? '<span class="tk rifiutato">DA RESPINGERE?</span>' : ''}${s.ticket_stato ? `<span class="tk">BT: ${esc(TK_LBL[s.ticket_stato] || s.ticket_stato)}</span>` : ''}${s.modificata ? '<span class="tk" style="color:var(--gold)">CORRETTA DA TE</span>' : ''}</div>
     ${conAzione ? `<div class="acts"><button class="btn gold sm" data-open="${s.id}">APRI E INVIA</button></div>` : ''}</div></div>`;
 }
 
@@ -743,6 +743,7 @@ async function apriEditor(id) {
     <div class="cap" style="margin-top:14px">Analisi degli agenti</div>
     ${campoOrig('Tipo proposto', s.tipo ? s.tipo + (s.tipo_motivo ? ' · ' + s.tipo_motivo : '') : '')}${campoOrig('Modulo', s.modulo)}${campoOrig('Priorità', s.priorita)}
     ${pm ? `<div class="ofield"><span>Permessi</span><div><b class="tk ${pm[1]}">${pm[0]}</b><br>${esc(s.permessi_analisi || '')}</div></div>` : ''}
+    ${s.respingi_motivo ? `<div class="ofield"><span>Da respingere?</span><div><b class="tk rifiutato">GLI AGENTI PROPONGONO DI RESPINGERLA</b><br>${esc(s.respingi_motivo)}</div></div>` : ''}
     ${s.doppione_di ? campoOrig('Doppione', 'probabile doppione della segnalazione #' + s.doppione_di) : ''}
     ${campoOrig('Note degli agenti', s.note_agenti)}${campoOrig('Tua nota per il rifacimento', s.nota_davide)}
     ${!s.tipo && !u ? '<div class="note" style="margin-top:8px">Gli agenti non l\'hanno ancora analizzata.</div>' : ''}`;
@@ -772,6 +773,7 @@ async function apriEditor(id) {
     $('#edTit').value = u.titolo || '';
     $('#edTxt').value = u.testo || '';
     $('#edDev').value = u.devops_id || '';
+    if (s.respingi_motivo && $('#edDropTxt')) $('#edDropTxt').value = s.respingi_motivo;
     const vals = () => ({tipo: $('#edTipo').value, priorita: $('#edPri').value, titolo: $('#edTit').value.trim(), testo: $('#edTxt').value, devops_id: $('#edDev').value.trim()});
     $('#edCopy').onclick = async () => { const v = vals(); try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); toast('Copiato negli appunti'); } catch { toast('Copia non riuscita'); } };
     if (!chiusa) {
