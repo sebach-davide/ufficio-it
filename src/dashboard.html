@@ -146,6 +146,7 @@ main{position:relative;overflow:hidden;min-height:0}
 .pill.waiting,.pill.proposto{background:var(--gold-bg);color:var(--gold)}
 .pill.rifiutato,.pill.errore,.pill.respinto,.pill.annullato,.pill.scaduto{background:var(--red-bg);color:var(--red)}
 .titem .t{font-weight:600;font-size:12.5px;line-height:1.35}
+.titem.solo{grid-template-columns:1fr}.titem.solo .t{word-break:break-word}.titem.solo .acts{margin-top:8px}
 .titem .m{font:500 10px var(--mono);color:var(--mute);margin-top:4px;letter-spacing:.3px;text-transform:uppercase}
 .titem .x{font-size:12px;color:var(--ink2);margin-top:5px;line-height:1.4}
 .bar{height:3px;border-radius:2px;background:var(--line);margin-top:7px;overflow:hidden}
@@ -633,10 +634,9 @@ function renderRight() {
       B.innerHTML = grp.map(([tp, lbl]) => {
         const g = list.filter(n => n.tipo === tp);
         if (!g.length && tp === 'nota') return '';
-        return `<div class="sect"><span>${lbl}</span><span>${g.length}</span></div>` + (g.map(n => `<div class="titem" style="${n.attivo ? '' : 'opacity:.5'}"><span class="pill ${tp === 'lezione' ? 'proposto' : tp === 'documento' ? 'in_progress' : tp === 'nozione' ? 'done' : ''}">${tp.toUpperCase()}</span><div>
+        return `<div class="sect"><span>${lbl}</span><span>${g.length}</span></div>` + (g.map(n => `<div class="titem solo" style="${n.attivo ? '' : 'opacity:.5'}"><div>
           <div class="t">${esc(n.titolo)}</div>
           <div class="m">${n.tag ? esc(n.tag) + ' · ' : ''}${n.fonte ? esc(n.fonte) + ' · ' : ''}${n.lunghezza < 1000 ? n.lunghezza + ' caratteri' : (n.lunghezza / 1000).toFixed(1) + 'k caratteri'} · ${ago(n.creato)}</div>
-          <div class="x" style="white-space:pre-wrap;max-height:110px;overflow:hidden">${esc((n.anteprima || '').slice(0, 400))}</div>
           <div class="acts"><button class="btn sm" data-bv="${n.id}">APRI</button><button class="btn sm" data-ba="${n.id}" data-on="${n.attivo ? 0 : 1}">${n.attivo ? 'DISATTIVA' : 'ATTIVA'}</button><button class="btn red sm" data-bd="${n.id}">ELIMINA</button></div></div></div>`).join('') || `<div class="note" style="padding:0 2px">${tp === 'lezione' ? 'Si riempie da sola quando correggi e invii le segnalazioni.' : tp === 'documento' ? 'Carica manuali, matrici dei permessi, profili utente: PDF, Word, Excel o testo.' : 'Regole e conoscenze brevi, per esempio cosa può fare un profilo concessionario.'}</div>`);
       }).join('') || `<div class="empty">${brainCache ? 'Nessun risultato.' : 'Carico…'}</div>`;
       B.querySelectorAll('[data-bv]').forEach(b => b.onclick = () => apriBrain(Number(b.dataset.bv)));
