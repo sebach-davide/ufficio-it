@@ -420,7 +420,7 @@ function renderTiles() {
   const t = [
     ['BUG TRACKER', `<span class="ic">${ICO_BUG}</span>`, imp.bugTracker ? (syncOk ? 'on' : imp.ultimoSync ? 'warn' : '') : 'off', imp.ultimoSync ? `Ultimo controllo ${ago(imp.ultimoSync)} · ${imp.syncEsito || ''}` : 'Non ancora controllato'],
     ['D1', logo('cloudflare', 'F38020', 'C'), 'on', 'Database Cloudflare D1 e Worker'],
-    ['CLAUDE', logo('claude', 'D97757', 'A'), agentiOn ? 'on' : 'warn', !imp.configurato ? 'Giro orario degli agenti: lun-ven 8-19, al minuto 7' : agentiOn ? 'Agenti al lavoro' : 'Agenti pronti · ultimo avvio ' + (imp.ultimoAvvio ? ago(imp.ultimoAvvio) : 'mai')],
+    ['CLAUDE', logo('claude', 'D97757', 'A'), agentiOn ? 'on' : 'warn', !imp.configurato ? 'Giro degli agenti: lun-ven alle 8:07, 12:07 e 16:07' : agentiOn ? 'Agenti al lavoro' : 'Agenti pronti · ultimo avvio ' + (imp.ultimoAvvio ? ago(imp.ultimoAvvio) : 'mai')],
     ['GITHUB', logo('github', '181717', 'G'), 'on', 'Codice e deploy automatico']
   ];
   const keys = ['bug', 'd1', 'claude', 'github'];
@@ -482,7 +482,7 @@ function renderLeft() {
         <div class="kv kv2">
           <span>Bug tracker</span><b>${imp.ultimoSync ? 'controllato ' + ago(imp.ultimoSync) : 'mai controllato'}</b>
           <span>Esito</span><b style="white-space:normal">${esc(imp.syncEsito || '—')}</b>
-          <span>Agenti</span><b>${S.inCorso ? '<span style="color:var(--blue)">al lavoro</span>' : imp.configurato ? 'pronti' : 'giro orario, lun-ven 8-19'}</b>
+          <span>Agenti</span><b>${S.inCorso ? '<span style="color:var(--blue)">al lavoro</span>' : imp.configurato ? 'pronti' : 'lun-ven 8:07, 12:07, 16:07'}</b>
           <span>Ultimo avvio</span><b>${imp.ultimoAvvio ? ago(imp.ultimoAvvio) : 'mai'}</b>
           <span>Lettura bug tracker</span><b>${imp.auto ? 'ogni 10 min' : 'in pausa'}</b>
           <span>Brain</span><b>${S.brain.documento || 0} doc · ${S.brain.nozione || 0} nozioni</b>

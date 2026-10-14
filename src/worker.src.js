@@ -169,7 +169,7 @@ async function turnoInCorso(env) {
 async function avviaAgenti(env, motivo, forza) {
   if (!env.ROUTINE_URL || !env.ROUTINE_TOKEN) {
     try { await presaInCarico(env); } catch (e) { await evento(env, 'accettazione', 'acc-lead', 'allarme', 'Presa in carico sul bug tracker non riuscita: ' + txt(e.message || e, 200)); }
-    return { ok: false, orario: true, errore: 'Ticket in coda: gli agenti li lavorano al prossimo giro orario' };
+    return { ok: false, orario: true, errore: 'Ticket in coda: gli agenti li lavorano al prossimo giro (8:07, 12:07, 16:07)' };
   }
   if (await turnoInCorso(env)) return { ok: false, inCorso: true, errore: 'Gli agenti sono già al lavoro' };
   const ultimo = await getImp(env, 'ultimo_avvio');
