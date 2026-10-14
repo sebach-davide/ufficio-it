@@ -584,7 +584,7 @@ function renderRight() {
   const bindOpen = () => B.querySelectorAll('[data-seg]').forEach(el => el.onclick = e => { e.stopPropagation(); apriEditor(Number(el.dataset.seg)); });
   if (rightTab === 'revisione') {
     const list = S.segnalazioni.filter(s => s.stato === 'pronta');
-    T.innerHTML = `<div class="composer"><div class="who"><span class="dot" style="background:#8e6bd8"></span>Revisione · ${list.length} da inviare</div><div class="note">Apri una segnalazione, correggi quello che vuoi, scrivi l'ID DevOps e premi INVIA: il ticket diventa Aperto nel bug tracker e il Brain studia le tue correzioni.</div></div>`;
+    T.innerHTML = `<div class="composer"><div class="who"><span class="dot" style="background:#8e6bd8"></span>Revisione · ${list.length} da inviare</div><div class="note">Apri una segnalazione, correggi quello che vuoi, scrivi l'ID DevOps e premi INVIA: il ticket diventa Aperto nel bug tracker (Sospesa se è una CR) e il Brain studia le tue correzioni.</div></div>`;
     B.innerHTML = list.map(s => segItem(s, true)).join('') || `<div class="empty">Niente da rivedere.${S.metriche.nuove ? `<br>${S.metriche.nuove} segnalazioni in coda agli agenti.` : ''}</div>`;
     bindOpen();
     return;
@@ -781,7 +781,7 @@ async function apriEditor(id) {
       $('#edSend').onclick = async () => {
         const v = vals();
         if (!v.devops_id) { toast('Scrivi l\'ID DevOps prima di inviare'); $('#edDev').focus(); return; }
-        if (!(await ask('Inviare?', `Il ticket ${s.codice || ''} diventa Aperto nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti e le tue modifiche finiscono nel Brain.`, 'Invia'))) return;
+        if (!(await ask('Inviare?', `Il ticket ${s.codice || ''} diventa ${v.tipo === 'CR' ? 'Sospesa (CR)' : 'Aperto'} nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti e le tue modifiche finiscono nel Brain.`, 'Invia'))) return;
         try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); } catch {}
         const r = await api(`/api/uscite/${u.id}/invia`, v);
         chiudiEditor();
