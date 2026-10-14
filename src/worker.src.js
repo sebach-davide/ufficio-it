@@ -166,7 +166,10 @@ async function turnoInCorso(env) {
 }
 
 async function avviaAgenti(env, motivo, forza) {
-  if (!env.ROUTINE_URL || !env.ROUTINE_TOKEN) return { ok: false, errore: 'Avvio degli agenti non configurato: mancano ROUTINE_URL e ROUTINE_TOKEN nei secret del Worker' };
+  if (!env.ROUTINE_URL || !env.ROUTINE_TOKEN) {
+    try { await presaInCarico(env); } catch (e) { await evento(env, 'accettazione', 'acc-lead', 'allarme', 'Presa in carico sul bug tracker non riuscita: ' + txt(e.message || e, 200)); }
+    return { ok: false, orario: true, errore: 'Ticket in coda: gli agenti li lavorano al prossimo giro orario' };
+  }
   if (await turnoInCorso(env)) return { ok: false, inCorso: true, errore: 'Gli agenti sono già al lavoro' };
   const ultimo = await getImp(env, 'ultimo_avvio');
   if (!forza && ultimo && Date.now() - Date.parse(ultimo) < ATTESA_TRA_AVVII_MIN * 60000) return { ok: false, errore: 'Avviati da poco' };
