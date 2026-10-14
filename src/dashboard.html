@@ -913,16 +913,34 @@ function drawMonitor(mon, state, color, t) {
     x.font = 'bold 16px IBM Plex Mono, monospace'; x.textAlign = 'center';
     x.fillText(state === 'waiting' ? 'IN ATTESA' : 'ERRORE', 80, 56);
     x.fillRect(30, 66, 100 * (0.5 + 0.5 * Math.sin(t * 3)), 3);
-  } else {
-    if (state === 'working') mon.off += 0.9;
+  } else if (state === 'working') {
+    mon.off += 2.4;
+    if (mon.off >= 8) { mon.off -= 8; mon.top = (mon.top + 1) % mon.lines.length; mon.typed = 0; }
+    mon.typed = Math.min(1, (mon.typed || 0) + 0.12);
     x.fillStyle = color; x.fillRect(0, 0, 160, 9);
-    for (let i = 0; i < 12; i++) {
-      const ln = mon.lines[(i + Math.floor(mon.off / 8)) % mon.lines.length];
-      x.fillStyle = ln.col; x.globalAlpha = .85;
-      x.fillRect(8 + ln.i, 14 + i * 7 - (mon.off % 8), ln.w, 3.2);
+    x.fillStyle = Math.floor(t * 3) % 2 ? '#ffffff' : 'rgba(255,255,255,.35)'; x.beginPath(); x.arc(152, 4.5, 2.2, 0, 6.3); x.fill();
+    for (let i = 0; i < 10; i++) {
+      const ln = mon.lines[((mon.top || 0) + i) % mon.lines.length];
+      const y = 14 + i * 8 - mon.off;
+      if (y < 11) continue;
+      const w = i === 9 ? ln.w * mon.typed : ln.w;
+      x.fillStyle = ln.col; x.globalAlpha = i === 9 ? 1 : .8;
+      x.fillRect(8 + ln.i, y, w, 3.4);
+      if (i === 9 && Math.floor(t * 4) % 2) { x.globalAlpha = 1; x.fillStyle = '#fff'; x.fillRect(10 + ln.i + w, y - 1, 3, 5.4); }
     }
     x.globalAlpha = 1;
-    if (state === 'working' && Math.floor(t * 2) % 2) { x.fillStyle = '#fff'; x.fillRect(10, 90, 6, 4); }
+    x.fillStyle = 'rgba(255,255,255,.12)'; x.fillRect(0, 95, 160, 5);
+    const sw = (t * 70) % 200 - 40;
+    const gr = x.createLinearGradient(sw, 0, sw + 40, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(.5, color); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = gr; x.fillRect(0, 95, 160, 5);
+  } else {
+    x.fillStyle = color; x.fillRect(0, 0, 160, 9);
+    for (let i = 0; i < 10; i++) {
+      const ln = mon.lines[((mon.top || 0) + i) % mon.lines.length];
+      x.fillStyle = ln.col; x.globalAlpha = .6;
+      x.fillRect(8 + ln.i, 14 + i * 8, ln.w, 3.4);
+    }
+    x.globalAlpha = 1;
     if (state === 'done') { x.fillStyle = 'rgba(76,194,122,.85)'; x.fillRect(0, 88, 160, 12); }
   }
   mon.tex.needsUpdate = true;
@@ -1284,7 +1302,7 @@ function animate(now) {
   }
   const showLabels = view.zoom > 2.0;
   monTick += dt;
-  const drawMon = monTick > 0.11; if (drawMon) monTick = 0;
+  const drawMon = monTick > 0.07; if (drawMon) monTick = 0;
   rooms.forEach(rm => {
     const target = (hoverRoom === rm.id || rm.hoverCard) ? 1 : 0;
     rm.hover += (target - rm.hover) * Math.min(1, dt * 8);
