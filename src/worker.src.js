@@ -175,7 +175,7 @@ async function avviaAgenti(env, motivo, forza) {
   const testo = `Avvio ${motivo}. In coda: ${coda.segnalazioni} segnalazioni nuove (${ids.results.map(r => r.codice || '#' + r.ticket_id).join(', ') || 'nessuna'}), ${coda.task} task di Davide, ${coda.chat} messaggi in chat, ${coda.modifiche} modifiche di Davide da studiare.`;
   let r, j = {};
   try {
-    r = await fetch(env.ROUTINE_URL, { method: 'POST', headers: { authorization: `Bearer ${env.ROUTINE_TOKEN}`, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ text: testo }) });
+    r = await fetch(env.ROUTINE_URL, { method: 'POST', headers: { authorization: `Bearer ${env.ROUTINE_TOKEN}`, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'experimental-cc-routine-2026-04-01', 'content-type': 'application/json' }, body: JSON.stringify({ text: testo }) });
     j = await r.json().catch(() => ({}));
   } catch (e) {
     await setImp(env, 'avvio_esito', 'errore: ' + txt(e.message || e, 200));
