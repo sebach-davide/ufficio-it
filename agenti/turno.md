@@ -19,7 +19,7 @@ Parte quando il Worker trova lavoro (controllo ogni 10 minuti) o quando Davide p
    - titolo: breve e specifico, nella forma "modulo: problema".
    - testo: contesto (utente o profilo, menù o area, documento se c'è); passi per riprodurre, numerati e dedotti dal ticket senza inventare; risultato atteso; risultato ottenuto (con il messaggio di errore, oppure "nessun messaggio a video"); impatto; ipotesi permessi se probabile o possibile; cosa mostrano gli allegati (es. «screenshot: errore 'Valore non valido' sulla maschera Anagrafica cliente»); domande aperte se mancano informazioni.
    Stile di partenza: frasi brevi, informale e diretto, in italiano. Le lezioni del Brain hanno la precedenza.
-   Salvataggio: se esiste già una riga in uscite per quella segnalazione con stato 'da_rifare' o 'pronta', UPDATE uscite SET tipo, titolo, testo, priorita, stato='pronta', aggiornato=datetime('now'); se non esiste, INSERT INTO uscite (segnalazione_id, tipo, titolo, testo, priorita, stato) VALUES (..., 'pronta'); se esiste con stato bozza, inviata o scartata non toccarla. Poi UPDATE segnalazioni SET stato='pronta', aggiornato=datetime('now'). Evento con tipo redazione.
+   Salvataggio: se esiste già una riga in uscite per quella segnalazione con stato 'da_rifare' o 'pronta', UPDATE uscite SET tipo, titolo, testo, priorita, stato='pronta', aggiornato=datetime('now'); se non esiste, INSERT INTO uscite (segnalazione_id, tipo, titolo, testo, priorita, stato) VALUES (..., 'pronta'); se esiste con stato bozza, inviata, scartata o archiviata non toccarla. Poi UPDATE segnalazioni SET stato='pronta', aggiornato=datetime('now'). Evento con tipo redazione.
 
 5. Revisione è la stanza di Davide: non toccarla e non impostare mai uscite a inviata.
 

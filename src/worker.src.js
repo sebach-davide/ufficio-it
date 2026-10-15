@@ -89,6 +89,17 @@ async function sincronizza(env) {
       aggiornate++;
     }
   }
+  const sosp = await bugs.prepare("SELECT t.id, t.code, t.type, t.title, t.area, t.operation, t.doc_number, t.error_text, t.expected, t.pro_check, t.severity, t.status, t.no_error_message, t.tag, t.created_at, t.updated_at, u.full_name AS autore, u.role AS autore_ruolo FROM tickets t LEFT JOIN users u ON u.id = t.created_by WHERE t.status = 'sospesa' ORDER BY t.id").all();
+  for (const t of sosp.results) {
+    if (gia.has(t.id)) continue;
+    const note = await bugs.prepare('SELECT n.body, n.system, n.created_at, u.full_name AS autore FROM notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.ticket_id = ?1 ORDER BY n.id').bind(t.id).all();
+    const all = await bugs.prepare('SELECT filename, mime, size FROM attachments WHERE ticket_id = ?1 ORDER BY id').bind(t.id).all();
+    const campi = [t.code, t.type, t.title, t.area, t.operation, t.doc_number, t.error_text, t.expected, t.pro_check, t.severity, t.no_error_message ? 1 : 0, t.tag, t.autore, t.autore_ruolo, t.status, t.created_at, t.updated_at, JSON.stringify(note.results), JSON.stringify(all.results)];
+    const ins = await db.prepare("INSERT INTO segnalazioni (ticket_id, codice, tipo_originale, titolo_originale, area, operazione, documento, errore, atteso, pro_check, severita, senza_messaggio, tag, autore, autore_ruolo, ticket_stato, ticket_creato, ticket_aggiornato, note_ticket, allegati, stato, tipo, modulo, priorita, note_agenti) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'archiviata', 'CR', ?5, ?11, 'importata dal bug tracker: era già sospesa') RETURNING id").bind(t.id, ...campi).first();
+    const testo = [t.operation && 'contesto: ' + t.operation, t.error_text && 'richiesta: ' + t.error_text, t.expected && 'atteso: ' + t.expected, t.doc_number && 'documento: ' + t.doc_number].filter(Boolean).join('\n\n') || t.title;
+    await db.prepare("INSERT INTO uscite (segnalazione_id, tipo, titolo, testo, priorita, stato, versione_agente) VALUES (?1, 'CR', ?2, ?3, ?4, 'archiviata', ?5)").bind(ins.id, t.title, testo, t.severity || 'media', JSON.stringify({ tipo: 'CR', priorita: t.severity || 'media', titolo: t.title, testo, importata: true })).run();
+    await evento(env, 'cr', 'cr-arch', 'ticket', `${t.code || '#' + t.id} importata nel magazzino CR (era già sospesa)`);
+  }
   const nAll = await sincronizzaAllegati(env);
   const segT = await db.prepare("SELECT ticket_id FROM segnalazioni WHERE stato != 'scartata' AND (ticket_stato IS NULL OR ticket_stato NOT IN ('risolto','respinto'))").all();
   const aperti = segT.results.map(r => r.ticket_id);
@@ -159,22 +170,26 @@ async function presaInCarico(env) {
   return n;
 }
 
+async function riclassifica(env, t, tipo, u) {
+  if (!(tipo === 'BUG' || tipo === 'CR') || t.type === tipo) return null;
+  const code = `${tipo}-${String(t.id).padStart(4, '0')}`;
+  await env.BUGS.prepare("UPDATE tickets SET type = ?2, code = ?3, updated_at = datetime('now') WHERE id = ?1").bind(t.id, tipo, code).run();
+  await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(t.id, u.id, `${u.full_name} ha impostato il tipo da «${t.type}» a «${tipo}». La segnalazione è stata riclassificata come ${code}.`).run();
+  await env.DB.prepare('UPDATE segnalazioni SET codice = ?2 WHERE ticket_id = ?1').bind(t.id, code).run();
+  await env.DB.prepare('UPDATE tempi SET codice = ?2, tipo = ?3 WHERE ticket_id = ?1').bind(t.id, code, tipo).run();
+  return code;
+}
+
 async function apriSuBugTracker(env, ticketId, devopsId, tipo) {
-  const dest = tipo === 'CR' ? 'sospesa' : 'aperto';
+  const dest = tipo === 'CR' ? 'approvato' : 'aperto';
   const t = await env.BUGS.prepare('SELECT id, type, code, status, devops_id, updated_at FROM tickets WHERE id = ?1').bind(ticketId).first();
   if (!t) return { ok: false, esito: 'ticket non trovato nel bug tracker' };
   const u = await utenteBug(env);
-  if (['nuovo', 'preso_in_carico'].includes(t.status)) {
-    if ((tipo === 'BUG' || tipo === 'CR') && t.type !== tipo) {
-      const code = `${tipo}-${String(ticketId).padStart(4, '0')}`;
-      await env.BUGS.prepare("UPDATE tickets SET type = ?2, code = ?3, updated_at = datetime('now') WHERE id = ?1").bind(ticketId, tipo, code).run();
-      await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato il tipo da «${t.type}» a «${tipo}». La segnalazione è stata riclassificata come ${code}.`).run();
-      await env.DB.prepare('UPDATE segnalazioni SET codice = ?2 WHERE ticket_id = ?1').bind(ticketId, code).run();
-      t.codiceNuovo = code;
-    }
+  if (['nuovo', 'preso_in_carico', 'sospesa'].includes(t.status)) {
+    const nuovo = await riclassifica(env, t, tipo, u);
     await env.BUGS.prepare("UPDATE tickets SET status = ?4, devops_id = ?2, reject_reason = NULL, status_by = ?3, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1").bind(ticketId, devopsId, u.id, dest).run();
     await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[t.status] || t.status}» a «${ET_STATO[dest]}», l’ID DevOps a «${devopsId}».`).run();
-    return { ok: true, esito: `${t.codiceNuovo ? 'riclassificato ' + t.codiceNuovo + ', ' : ''}ticket ${dest === 'sospesa' ? 'sospeso (CR)' : 'aperto'} con ID DevOps ${devopsId}`, stato: dest };
+    return { ok: true, esito: `${nuovo ? 'riclassificato ' + nuovo + ', ' : ''}ticket ${ET_STATO[dest]} con ID DevOps ${devopsId}`, stato: dest };
   }
   if (['aperto', 'approvato'].includes(t.status)) {
     if (t.devops_id && t.devops_id !== devopsId) return { ok: false, esito: `ticket già aperto con un altro ID DevOps (${t.devops_id}): non toccato`, stato: t.status };
@@ -187,10 +202,22 @@ async function apriSuBugTracker(env, ticketId, devopsId, tipo) {
   return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
 }
 
+async function archiviaSuBugTracker(env, ticketId) {
+  const t = await env.BUGS.prepare('SELECT id, type, code, status FROM tickets WHERE id = ?1').bind(ticketId).first();
+  if (!t) return { ok: false, esito: 'ticket non trovato nel bug tracker' };
+  if (t.status === 'sospesa') return { ok: true, esito: 'già sospesa', stato: 'sospesa' };
+  if (!['nuovo', 'preso_in_carico'].includes(t.status)) return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
+  const u = await utenteBug(env);
+  const nuovo = await riclassifica(env, t, 'CR', u);
+  await env.BUGS.prepare("UPDATE tickets SET status = 'sospesa', reject_reason = NULL, status_by = ?2, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1").bind(ticketId, u.id).run();
+  await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[t.status] || t.status}» a «Sospesa».`).run();
+  return { ok: true, esito: `${nuovo ? 'riclassificata ' + nuovo + ', ' : ''}CR sospesa in magazzino`, stato: 'sospesa' };
+}
+
 async function respingiSuBugTracker(env, ticketId, motivo) {
   const t = await env.BUGS.prepare('SELECT id, status FROM tickets WHERE id = ?1').bind(ticketId).first();
   if (!t) return { ok: false, esito: 'ticket non trovato nel bug tracker' };
-  if (!['nuovo', 'preso_in_carico'].includes(t.status)) return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
+  if (!['nuovo', 'preso_in_carico', 'sospesa'].includes(t.status)) return { ok: false, esito: `ticket ${ET_STATO[t.status] || t.status} nel bug tracker: non toccato`, stato: t.status };
   const u = await utenteBug(env);
   await env.BUGS.prepare("UPDATE tickets SET status = 'respinto', reject_reason = ?2, status_by = ?3, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1").bind(ticketId, motivo, u.id).run();
   await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[t.status] || t.status}» a «Respinto». Motivazione del rifiuto: «${motivo}»`).run();
@@ -240,14 +267,13 @@ async function aggiornaTempi(env) {
   if (!bugs) return 0;
   const S = await soglie(env);
   const { results: tk } = await bugs.prepare("SELECT id, code, type, title, area, severity, status, devops_id, created_at, status_at FROM tickets WHERE status IN ('aperto','approvato','sospesa','risolto') OR devops_id IS NOT NULL").all();
-  const { results: nt } = await bugs.prepare("SELECT ticket_id, body, created_at FROM notes WHERE system = 1 AND (body LIKE '%a «Aperto»%' OR body LIKE '%a «Risolto»%' OR body LIKE '%a «Sospesa»%') ORDER BY id").all();
+  const { results: nt } = await bugs.prepare("SELECT ticket_id, body, created_at FROM notes WHERE system = 1 AND (body LIKE '%a «Aperto»%' OR body LIKE '%a «Approvato»%' OR body LIKE '%a «Risolto»%') ORDER BY id").all();
   const { results: us } = await db.prepare("SELECT s.ticket_id, s.modulo, u.priorita, u.inviata_il FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE u.stato = 'inviata'").all();
   const nostro = new Map(us.map(r => [r.ticket_id, r]));
   const storia = new Map();
   for (const n of nt) {
     const h = storia.get(n.ticket_id) || {};
-    if (/a «Aperto»/.test(n.body) && !h.aperto) h.aperto = n.created_at;
-    if (/a «Sospesa»/.test(n.body) && !h.aperto) h.aperto = n.created_at;
+    if (/a «(Aperto|Approvato)»/.test(n.body) && !h.aperto) h.aperto = n.created_at;
     if (/a «Risolto»/.test(n.body)) h.risolto = n.created_at;
     storia.set(n.ticket_id, h);
   }
@@ -364,8 +390,8 @@ async function stato(env) {
     db.prepare('SELECT id, reparto_id, nome, ruolo, lead, stato, attivita, aggiornato FROM agenti ORDER BY reparto_id, lead DESC, id').all(),
     db.prepare("SELECT id, reparto_id, agente_id, titolo, dettaglio, origine, stato, progresso, creato, aggiornato FROM task WHERE stato != 'done' OR aggiornato > datetime('now', '-2 days') ORDER BY aggiornato DESC LIMIT 80").all(),
     db.prepare('SELECT id, reparto_id, agente_id, tipo, messaggio, creato FROM eventi ORDER BY id DESC LIMIT 40').all(),
-    db.prepare("SELECT s.id, s.ticket_id, s.codice, s.tipo_originale, s.titolo_originale, s.area, s.severita, s.pro_check, s.autore, s.ticket_stato, s.ticket_creato, s.stato, s.tipo, s.modulo, s.priorita, s.permessi, s.doppione_di, s.respingi_motivo, s.aggiornato, u.id AS uscita_id, u.titolo AS uscita_titolo, u.stato AS uscita_stato, u.modificata FROM segnalazioni s LEFT JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato NOT IN ('inviata','scartata') OR s.aggiornato > datetime('now', '-30 days') ORDER BY s.id DESC LIMIT 200").all(),
-    db.prepare("SELECT COUNT(*) AS n FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND COALESCE(s.tipo, '') != 'CR'").first(),
+    db.prepare("SELECT s.id, s.ticket_id, s.codice, s.tipo_originale, s.titolo_originale, s.area, s.severita, s.pro_check, s.autore, s.ticket_stato, s.ticket_creato, s.stato, s.tipo, s.modulo, s.priorita, s.permessi, s.doppione_di, s.respingi_motivo, s.aggiornato, u.id AS uscita_id, u.titolo AS uscita_titolo, u.stato AS uscita_stato, u.modificata FROM segnalazioni s LEFT JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato NOT IN ('inviata','scartata') OR s.aggiornato > datetime('now', '-30 days') OR (s.tipo = 'CR' AND s.ticket_stato = 'approvato') ORDER BY s.id DESC LIMIT 300").all(),
+    db.prepare("SELECT COUNT(*) AS n FROM uscite WHERE stato IN ('pronta','bozza')").first(),
     db.prepare(`SELECT
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'nuova') AS nuove,
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'in_lavoro') AS inLavoro,
@@ -375,8 +401,9 @@ async function stato(env) {
       (SELECT COUNT(*) FROM segnalazioni WHERE doppione_di IS NOT NULL) AS doppioni,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'probabile') AS permProbabili,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'possibile') AS permPossibili,
-      (SELECT COUNT(*) FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND COALESCE(s.tipo, '') != 'CR') AS daRivedere,
-      (SELECT COUNT(*) FROM segnalazioni WHERE tipo = 'CR' AND stato = 'pronta') AS crAttesa,
+      (SELECT COUNT(*) FROM uscite WHERE stato IN ('pronta','bozza')) AS daRivedere,
+      (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'archiviata') AS crArchiviate,
+      (SELECT COUNT(*) FROM segnalazioni WHERE tipo = 'CR' AND ticket_stato = 'approvato') AS crApprovate,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'pronta') AS pronte,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata' AND inviata_il > datetime('now','-7 days')) AS inviate7,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata') AS inviate,
@@ -462,7 +489,7 @@ async function apiDashboard(req, env, url, ctx) {
 
   if (p === '/api/push/ultime' && m === 'GET') {
     const prova = await getImp(env, 'push_prova');
-    const { results } = await db.prepare("SELECT s.id, s.ticket_id, s.codice, u.titolo FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND COALESCE(s.tipo, '') != 'CR' AND s.notificata_il > datetime('now', '-30 minutes') ORDER BY s.notificata_il DESC LIMIT 10").all();
+    const { results } = await db.prepare("SELECT s.id, s.ticket_id, s.codice, u.titolo FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND s.notificata_il > datetime('now', '-30 minutes') ORDER BY s.notificata_il DESC LIMIT 10").all();
     if (!results.length && prova && Date.now() - Date.parse(prova) < 120000) return json([{ id: 0, codice: 'PROVA', titolo: 'Le notifiche dell\'Ufficio IT funzionano' }]);
     return json(results);
   }
@@ -561,7 +588,7 @@ async function apiDashboard(req, env, url, ctx) {
     return json({ ok: true });
   }
 
-  mm = p.match(/^\/api\/uscite\/(\d+)\/(salva|invia|scarta)$/);
+  mm = p.match(/^\/api\/uscite\/(\d+)\/(salva|invia|scarta|archivia)$/);
   if (mm && m === 'POST') {
     const b = await body(req);
     const u = await db.prepare('SELECT * FROM uscite WHERE id = ?1').bind(Number(mm[1])).first();
@@ -590,16 +617,20 @@ async function apiDashboard(req, env, url, ctx) {
       await db.prepare("UPDATE uscite SET tipo = ?2, priorita = ?3, titolo = ?4, testo = ?5, devops_id = ?6, stato = 'bozza', aggiornato = datetime('now') WHERE id = ?1").bind(u.id, v.tipo, v.priorita, v.titolo, v.testo, devops || null).run();
       return json({ ok: true });
     }
-    if (!devops) return json({ errore: 'Scrivi l’ID DevOps: serve per aprire il ticket nel bug tracker' }, 400);
+    const archivia = mm[2] === 'archivia';
+    if (archivia) v.tipo = 'CR';
+    if (!archivia && !devops) return json({ errore: 'Scrivi l’ID DevOps: serve per aprire il ticket nel bug tracker' }, 400);
     let bt = { ok: false, esito: 'bug tracker non collegato' };
-    try { if (env.BUGS && s) bt = await apriSuBugTracker(env, s.ticket_id, devops, v.tipo); }
+    try { if (env.BUGS && s) bt = archivia ? await archiviaSuBugTracker(env, s.ticket_id) : await apriSuBugTracker(env, s.ticket_id, devops, v.tipo); }
     catch (e) { bt = { ok: false, esito: 'errore: ' + txt(e.message || e, 200) }; }
-    const cambi = CAMPI_USCITA.filter(k => norm(agente[k]) !== norm(v[k]));
+    if (archivia && !bt.ok) return json({ errore: 'Archiviazione non riuscita: ' + bt.esito }, 409);
+    const statoFin = archivia ? 'archiviata' : 'inviata';
+    const cambi = agente.importata ? [] : CAMPI_USCITA.filter(k => norm(agente[k]) !== norm(v[k]));
     const stmts = cambi.map(k => db.prepare('INSERT INTO modifiche (uscita_id, segnalazione_id, campo, prima, dopo) VALUES (?1, ?2, ?3, ?4, ?5)').bind(u.id, u.segnalazione_id, k, String(agente[k] ?? ''), String(v[k] ?? '')));
-    stmts.push(db.prepare("UPDATE uscite SET tipo = ?2, priorita = ?3, titolo = ?4, testo = ?5, devops_id = ?7, stato = 'inviata', modificata = ?6, inviata_il = datetime('now'), aggiornato = datetime('now') WHERE id = ?1").bind(u.id, v.tipo, v.priorita, v.titolo, v.testo, cambi.length ? 1 : 0, devops));
-    stmts.push(db.prepare("UPDATE segnalazioni SET stato = 'inviata', tipo = ?2, priorita = ?3, ticket_stato = COALESCE(?4, ticket_stato), aggiornato = datetime('now') WHERE id = ?1").bind(u.segnalazione_id, v.tipo, v.priorita, bt.stato || null));
+    stmts.push(db.prepare("UPDATE uscite SET tipo = ?2, priorita = ?3, titolo = ?4, testo = ?5, devops_id = ?7, stato = ?8, modificata = ?6, inviata_il = CASE WHEN ?8 = 'inviata' THEN datetime('now') ELSE inviata_il END, aggiornato = datetime('now') WHERE id = ?1").bind(u.id, v.tipo, v.priorita, v.titolo, v.testo, cambi.length ? 1 : 0, devops || null, statoFin));
+    stmts.push(db.prepare("UPDATE segnalazioni SET stato = ?5, tipo = ?2, priorita = ?3, ticket_stato = COALESCE(?4, ticket_stato), aggiornato = datetime('now') WHERE id = ?1").bind(u.segnalazione_id, v.tipo, v.priorita, bt.stato || null, statoFin));
     await db.batch(stmts);
-    await evento(env, 'revisione', 'rev-davide', bt.ok ? 'revisione' : 'allarme', `${nome} inviata (DevOps ${devops})${cambi.length ? ' con modifiche a ' + cambi.join(', ') : ' senza modifiche'} · bug tracker: ${bt.esito}`);
+    await evento(env, archivia ? 'cr' : 'revisione', archivia ? 'cr-arch' : 'rev-davide', bt.ok ? 'revisione' : 'allarme', `${nome} ${archivia ? 'archiviata nel magazzino CR' : (v.tipo === 'CR' ? 'approvata' : 'inviata') + ' (DevOps ' + devops + ')'}${cambi.length ? ' con modifiche a ' + cambi.join(', ') : ''} · bug tracker: ${bt.esito}`);
     return json({ ok: true, cambi, bugTracker: bt });
   }
 
@@ -727,7 +758,7 @@ async function inviaPush(env, origine) {
 }
 
 async function notificaPronte(env) {
-  const { results } = await env.DB.prepare("SELECT s.id FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND COALESCE(s.tipo, '') != 'CR' AND (s.notificata_il IS NULL OR u.aggiornato > s.notificata_il)").all();
+  const { results } = await env.DB.prepare("SELECT s.id FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND (s.notificata_il IS NULL OR u.aggiornato > s.notificata_il)").all();
   if (!results.length) return 0;
   await env.DB.batch(results.map(r => env.DB.prepare("UPDATE segnalazioni SET notificata_il = datetime('now') WHERE id = ?1").bind(r.id)));
   await inviaPush(env, env.ORIGINE || 'https://ufficio-it.sebach-reparto-it.workers.dev');

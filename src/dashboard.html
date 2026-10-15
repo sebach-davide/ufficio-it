@@ -147,6 +147,7 @@ main{position:relative;overflow:hidden;min-height:0}
 .pill.done,.pill.eseguito{background:var(--green-bg);color:var(--green)}
 .pill.in_progress,.pill.inviato,.pill.approvato{background:var(--blue-bg);color:var(--blue)}
 .pill.waiting,.pill.proposto{background:var(--gold-bg);color:var(--gold)}
+.pill.sospesa{background:rgba(154,168,74,.16);color:#c3d06a}
 .pill.rifiutato,.pill.errore,.pill.respinto,.pill.annullato,.pill.scaduto{background:var(--red-bg);color:var(--red)}
 .titem .t{font-weight:600;font-size:12.5px;line-height:1.35}
 .titem.solo{grid-template-columns:1fr}.titem.solo .t{word-break:break-word}.titem.solo .acts{margin-top:8px}
@@ -362,7 +363,7 @@ const QUICK = {
 };
 const STATO_LBL = {idle:'FERMO', working:'AL LAVORO', waiting:'IN ATTESA', done:'FATTO', error:'ERRORE'};
 const TASK_LBL = {scheduled:'Programmato', backlog:'Backlog', in_progress:'In corso', waiting:'In attesa', done:'Fatto'};
-const SEG_LBL = {nuova:['IN CODA','waiting'], in_lavoro:['IN LAVORO','in_progress'], pronta:['DA RIVEDERE','proposto'], inviata:['INVIATA','done'], scartata:['SCARTATA','annullato']};
+const SEG_LBL = {nuova:['IN CODA','waiting'], in_lavoro:['IN LAVORO','in_progress'], pronta:['DA RIVEDERE','proposto'], inviata:['INVIATA','done'], scartata:['SCARTATA','annullato'], archiviata:['ARCHIVIATA','sospesa']};
 const PERM_LBL = {probabile:['PERMESSI: PROBABILE','rifiutato'], possibile:['PERMESSI: POSSIBILE','waiting'], escluso:['PERMESSI: NO','']};
 const TK_LBL = {nuovo:'Nuovo', preso_in_carico:'Preso in carico', aperto:'Aperto', approvato:'Approvato', risolto:'Risolto', respinto:'Respinto', sospesa:'Sospesa'};
 const PRO_LBL = {anche_su_pro:'anche su Sebach Pro', solo_su_plus:'solo su Plus', non_applicabile:'non applicabile', non_verificato:'non verificato'};
@@ -393,6 +394,7 @@ function agentState(a) {
   if (s === 'working' && age > 45) s = 'idle';
   if (s === 'waiting' && S && !inAttesaDiDavide(a.reparto_id)) s = age > 15 ? 'idle' : 'done';
   if (s === 'done' && age > 15) s = 'idle';
+  if (S && a.id === 'cr-arch') { s = 'idle'; att = `${S.metriche.crArchiviate || 0} CR in magazzino, ${S.metriche.crApprovate || 0} approvate`; }
   if (S && a.id === 'rev-davide') {
     s = S.daRivedere > 0 ? 'waiting' : 'idle';
     att = S.daRivedere > 0 ? `${S.daRivedere} da rivedere e inviare` : 'Niente da rivedere';
@@ -408,6 +410,7 @@ function repMetrics(id) {
     case 'redazione': return [['In lavoro', m.inLavoro], ['Lezioni', m.lezioni]];
     case 'revisione': return [['Da rivedere', m.daRivedere], ['Inviate 7gg', m.inviate7]];
     case 'monitoraggio': return [['In ritardo', m.inRitardo], ['Risolti 30gg', m.risolti30]];
+    case 'cr': return [['Archiviate', m.crArchiviate], ['Approvate', m.crApprovate]];
   }
   return [];
 }
@@ -547,7 +550,7 @@ function renderLeft() {
       ${rev ? '' : `<div class="ddn"><span>IN CORSO <b>${t.doing}</b></span><span>PROSSIMI <b>${t.next}</b></span><span>FATTI 24H <b>${t.done}</b></span></div>`}
     </div>
     ${lead ? `<div class="card lead"><div class="cap">★ ${rev ? 'La tua stanza' : 'Lead · ' + esc(r.nome)}</div><h3>${esc(lead.nome)}</h3><p>${esc(r.descrizione)}</p>
-      <div class="acts">${rev ? '<button class="btn gold sm" id="goRev2">APRI LA REVISIONE</button>' : r.id === 'monitoraggio' ? '<button class="btn sm" data-act="tempi">DETTAGLI TEMPI</button><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI</button>' : '<button class="btn gold sm" id="aggBtn">▶ AVVIA ORA</button>'}</div></div>` : ''}
+      <div class="acts">${rev ? '<button class="btn gold sm" id="goRev2">APRI LA REVISIONE</button>' : r.id === 'monitoraggio' ? '<button class="btn sm" data-act="tempi">DETTAGLI TEMPI</button><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI</button>' : r.id === 'cr' ? '<button class="btn gold sm" data-act="magazzino">APRI IL MAGAZZINO</button>' : '<button class="btn gold sm" id="aggBtn">▶ AVVIA ORA</button>'}</div></div>` : ''}
     <div class="card"><div class="cap">${rev ? 'Postazione' : 'Agenti · ' + ags.length}</div><div style="margin-top:6px">${ags.map(a => {
       const st = agentState(a);
       return `<div class="ag"><span class="dot ${st.s === 'working' ? 'on' : st.s === 'waiting' ? 'warn' : st.s === 'error' ? 'off' : ''}"></span><div><div class="n">${a.lead ? '★ ' : ''}${esc(a.nome)}</div><div class="r">${esc(st.att || a.ruolo || '')}</div></div><span class="s ${st.s}">${STATO_LBL[st.s] || st.s}</span></div>`;
@@ -592,7 +595,7 @@ async function avviaOra() {
 }
 
 function renderTabs() {
-  const tabs = [['revisione', 'Revisione', S.daRivedere], ['segnalazioni', 'Segnalazioni', S.metriche.nuove || 0], ['brain', 'Brain', 0], ['task', 'Task', S.task.filter(t => t.stato === 'waiting').length]];
+  const tabs = [['revisione', 'Revisione', S.daRivedere], ['segnalazioni', 'Segnalazioni', S.metriche.nuove || 0], ['cr', 'CR', 0], ['brain', 'Brain', 0], ['task', 'Task', S.task.filter(t => t.stato === 'waiting').length]];
   $('#tabs').innerHTML = tabs.map(([k, l, n]) => `<button class="tab ${rightTab === k ? 'on' : ''}" data-t="${k}">${l}${n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
   $('#tabs').querySelectorAll('.tab').forEach(b => b.onclick = () => { rightTab = b.dataset.t; renderRight(); });
 }
@@ -601,7 +604,7 @@ function segItem(s, conAzione) {
   const [l, c] = SEG_LBL[s.stato] || [s.stato.toUpperCase(), ''];
   const titolo = s.uscita_titolo || s.titolo_originale;
   const pm = PERM_LBL[s.permessi];
-  return `<div class="titem ${s.stato === 'pronta' ? 'wait' : ''} clic" data-seg="${s.id}"><span class="pill ${c}">${s.tipo === 'CR' && s.stato === 'pronta' ? 'CR IN ATTESA' : s.uscita_stato === 'bozza' && s.stato === 'pronta' ? 'BOZZA' : l}</span><div>
+  return `<div class="titem ${s.stato === 'pronta' ? 'wait' : ''} clic" data-seg="${s.id}"><span class="pill ${c}">${s.uscita_stato === 'bozza' && s.stato === 'pronta' ? 'BOZZA' : l}</span><div>
     <div class="t">${esc(titolo)}</div>
     <div class="m">${esc(s.codice || '#' + s.ticket_id)} · ${esc(s.tipo || s.tipo_originale || '')}${s.priorita ? ' · ' + esc(s.priorita) : s.severita ? ' · ' + esc(s.severita) : ''} · ${esc(s.autore || '')} · ${ago(s.aggiornato)}</div>
     <div>${pm && s.permessi !== 'escluso' ? `<span class="tk ${pm[1]}">${pm[0]}</span>` : ''}${s.doppione_di ? `<span class="tk">DOPPIONE DI #${esc(s.doppione_di)}</span>` : ''}${s.respingi_motivo ? '<span class="tk rifiutato">DA RESPINGERE?</span>' : ''}${s.ticket_stato ? `<span class="tk">BT: ${esc(TK_LBL[s.ticket_stato] || s.ticket_stato)}</span>` : ''}${s.modificata ? '<span class="tk" style="color:var(--gold)">CORRETTA DA TE</span>' : ''}</div>
@@ -614,7 +617,7 @@ function renderRight() {
   const r = selected ? S.reparti.find(x => x.id === selected) : null;
   const bindOpen = () => B.querySelectorAll('[data-seg]').forEach(el => el.onclick = e => { e.stopPropagation(); apriEditor(Number(el.dataset.seg)); });
   if (rightTab === 'revisione') {
-    const list = S.segnalazioni.filter(s => s.stato === 'pronta' && s.tipo !== 'CR');
+    const list = S.segnalazioni.filter(s => s.stato === 'pronta');
     T.innerHTML = `<div class="composer"><div class="who"><span class="dot" style="background:#8e6bd8"></span>Revisione · ${list.length} da inviare</div><div class="note">Apri una segnalazione, correggi quello che vuoi, scrivi l'ID DevOps e premi INVIA: il ticket diventa Aperto nel bug tracker (Sospesa se è una CR) e il Brain studia le tue correzioni.</div></div>`;
     B.innerHTML = list.map(s => segItem(s, true)).join('') || `<div class="empty">Niente da rivedere.${S.metriche.nuove ? `<br>${S.metriche.nuove} segnalazioni in coda agli agenti.` : ''}</div>`;
     bindOpen();
@@ -622,12 +625,26 @@ function renderRight() {
   }
   if (rightTab === 'segnalazioni') {
     T.innerHTML = `<div class="composer"><div class="who">Segnalazioni dal bug tracker</div><div class="note">Arrivano da sole: il Worker controlla il bug tracker ogni 10 minuti e passa agli agenti quelle in stato Nuovo. Le inviate restano seguite fino a Risolto.</div><div class="acts"><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI DA ID DEVOPS</button><button class="btn sm" data-act="tempi">TEMPI</button></div></div>`;
-    const flt = [['attive', 'Attive', s => !['inviata', 'scartata'].includes(s.stato)], ['nuova', 'In coda', s => s.stato === 'nuova'], ['in_lavoro', 'In lavoro', s => s.stato === 'in_lavoro'], ['pronta', 'Da rivedere', s => s.stato === 'pronta' && s.tipo !== 'CR'], ['cr', 'CR in attesa', s => s.stato === 'pronta' && s.tipo === 'CR'], ['inviata', 'Inviate', s => s.stato === 'inviata'], ['scartata', 'Scartate', s => s.stato === 'scartata'], ['tutte', 'Tutte', () => true]];
+    const flt = [['attive', 'Attive', s => !['inviata', 'scartata', 'archiviata'].includes(s.stato)], ['nuova', 'In coda', s => s.stato === 'nuova'], ['in_lavoro', 'In lavoro', s => s.stato === 'in_lavoro'], ['pronta', 'Da rivedere', s => s.stato === 'pronta'], ['archiviata', 'CR archiviate', s => s.stato === 'archiviata'], ['inviata', 'Inviate', s => s.stato === 'inviata'], ['scartata', 'Scartate', s => s.stato === 'scartata'], ['tutte', 'Tutte', () => true]];
     const f = flt.find(x => x[0] === segFilter) || flt[0];
     const shown = S.segnalazioni.filter(f[2]);
     B.innerHTML = `<div class="chips">${flt.map(([k, l, fn]) => `<button class="fchip ${segFilter === k ? 'on' : ''}" data-f="${k}">${l} ${S.segnalazioni.filter(fn).length}</button>`).join('')}</div>
       ${shown.map(s => segItem(s, false)).join('') || '<div class="empty">Nessuna segnalazione qui.</div>'}`;
     B.querySelectorAll('.fchip').forEach(b => b.onclick = () => { segFilter = b.dataset.f; renderRight(); });
+    bindOpen();
+    return;
+  }
+  if (rightTab === 'cr') {
+    const arch = S.segnalazioni.filter(s => s.stato === 'archiviata');
+    const appr = S.segnalazioni.filter(s => s.tipo === 'CR' && s.ticket_stato === 'approvato');
+    const ris = S.segnalazioni.filter(s => s.tipo === 'CR' && s.ticket_stato === 'risolto');
+    T.innerHTML = `<div class="composer"><div class="who"><span class="dot" style="background:#9aa84a"></span>Magazzino Change Request</div><div class="note">Le CR archiviate restano qui, Sospese nel bug tracker e senza ID DevOps. Quando decidete di farne una, aprila, scrivi l'ID DevOps e premi APPROVA: diventa Approvata e partono i tempi del fornitore.</div></div>`;
+    const item = s => `<div class="titem clic" data-seg="${s.id}"><span class="pill ${s.stato === 'archiviata' ? 'sospesa' : s.ticket_stato === 'risolto' ? 'done' : 'in_progress'}">${s.stato === 'archiviata' ? 'ARCHIVIATA' : s.ticket_stato === 'risolto' ? 'RISOLTA' : 'APPROVATA'}</span><div>
+      <div class="t">${esc(s.uscita_titolo || s.titolo_originale)}</div>
+      <div class="m">${esc(s.codice || '#' + s.ticket_id)}${s.modulo || s.area ? ' · ' + esc(s.modulo || s.area) : ''} · ${esc(s.autore || '')} · chiesta ${ago(s.ticket_creato)}</div></div></div>`;
+    B.innerHTML = `<div class="sect"><span>Archiviate</span><span>${arch.length}</span></div>${arch.map(item).join('') || '<div class="note" style="padding:0 2px">Nessuna CR in magazzino.</div>'}
+      <div class="sect"><span>Approvate · in lavorazione</span><span>${appr.length}</span></div>${appr.map(item).join('') || '<div class="note" style="padding:0 2px">Nessuna CR approvata in corso.</div>'}
+      ${ris.length ? `<div class="sect"><span>Risolte · ultimi 30 giorni</span><span>${ris.length}</span></div>${ris.map(item).join('')}` : ''}`;
     bindOpen();
     return;
   }
@@ -776,7 +793,7 @@ async function apriEditor(id) {
     ${campoOrig('Note degli agenti', s.note_agenti)}${campoOrig('Tua nota per il rifacimento', s.nota_davide)}
     ${!s.tipo && !u ? '<div class="note" style="margin-top:8px">Gli agenti non l\'hanno ancora analizzata.</div>' : ''}`;
   const R = $('#edForm');
-  if (!u || !['pronta', 'bozza', 'inviata', 'scartata'].includes(u.stato)) {
+  if (!u || !['pronta', 'bozza', 'inviata', 'scartata', 'archiviata'].includes(u.stato)) {
     R.innerHTML = `<div class="empty">${u && u.stato === 'da_rifare' ? 'L\'hai rimandata agli agenti: la stanno rifacendo.' : 'La Redazione non ha ancora preparato il testo.'}<br>La trovi in Revisione appena è pronta.</div>`;
   } else {
     const chiusa = ['inviata', 'scartata'].includes(u.stato);
@@ -792,7 +809,7 @@ async function apriEditor(id) {
       ${chiusa ? `<div class="note">${u.stato === 'inviata' ? 'Inviata ' + ago(u.inviata_il) + (u.devops_id ? ' · DevOps ' + esc(u.devops_id) : '') : 'Scartata' + (u.motivo ? ': ' + esc(u.motivo) : '')}</div>` : ''}
       <div class="acts eacts">
         <button class="btn sm" id="edCopy">COPIA</button>
-        ${chiusa ? '' : `<button class="btn sm" id="edSave">SALVA BOZZA</button><button class="btn sm" id="edRedo">RIFAI CON NOTA</button><button class="btn red sm" id="edDrop">SCARTA</button><span class="grow"></span><button class="btn gold" id="edSend">INVIA</button>`}
+        ${chiusa ? '' : `${u.stato === 'archiviata' ? '' : '<button class="btn sm" id="edSave">SALVA BOZZA</button><button class="btn sm" id="edRedo">RIFAI CON NOTA</button>'}<button class="btn red sm" id="edDrop">SCARTA</button><span class="grow"></span><button class="btn" id="edArch" title="Sospesa nel bug tracker, senza ID DevOps">ARCHIVIA</button><button class="btn gold" id="edSend">INVIA</button>`}
       </div>
       <div id="edRedoBox" class="hidden"><textarea class="field" id="edRedoTxt" placeholder="Cosa deve cambiare? Es. è un problema di permessi del profilo C-, non un bug" style="width:100%;min-height:70px"></textarea><div class="acts"><button class="btn gold sm" id="edRedoOk">RIMANDA AGLI AGENTI</button></div></div>
       <div id="edDropBox" class="hidden"><textarea class="field" id="edDropTxt" maxlength="1000" placeholder="Motivazione del rifiuto: la legge chi ha aperto il ticket nel bug tracker" style="width:100%;min-height:70px"></textarea><div class="acts"><button class="btn red sm" id="edDropOk">SCARTA E RESPINGI</button></div></div>`;
@@ -805,7 +822,7 @@ async function apriEditor(id) {
     const vals = () => ({tipo: $('#edTipo').value, priorita: $('#edPri').value, titolo: $('#edTit').value.trim(), testo: $('#edTxt').value, devops_id: $('#edDev').value.trim()});
     $('#edCopy').onclick = async () => { const v = vals(); try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); toast('Copiato negli appunti'); } catch { toast('Copia non riuscita'); } };
     if (!chiusa) {
-      $('#edSave').onclick = async () => { await api(`/api/uscite/${u.id}/salva`, vals()); toast('Bozza salvata'); refresh(); };
+      if ($('#edSave')) $('#edSave').onclick = async () => { await api(`/api/uscite/${u.id}/salva`, vals()); toast('Bozza salvata'); refresh(); };
       $('#edDrop').onclick = () => { $('#edRedoBox').classList.add('hidden'); $('#edDropBox').classList.toggle('hidden'); $('#edDropTxt').focus(); };
       $('#edDropOk').onclick = async () => {
         const motivo = $('#edDropTxt').value.trim();
@@ -816,16 +833,32 @@ async function apriEditor(id) {
         toast(r.bugTracker && r.bugTracker.ok ? 'Scartata · ticket respinto nel bug tracker' : `Scartata, ma bug tracker: ${(r.bugTracker && r.bugTracker.esito) || 'non aggiornato'}`);
         refresh();
       };
-      $('#edRedo').onclick = () => { $('#edDropBox').classList.add('hidden'); $('#edRedoBox').classList.toggle('hidden'); $('#edRedoTxt').focus(); };
+      if ($('#edRedo')) $('#edRedo').onclick = () => { $('#edDropBox').classList.add('hidden'); $('#edRedoBox').classList.toggle('hidden'); $('#edRedoTxt').focus(); };
       $('#edRedoOk').onclick = async () => { const nota = $('#edRedoTxt').value.trim(); if (!nota) { toast('Scrivi cosa deve cambiare'); return; } await api(`/api/segnalazioni/${s.id}/rifai`, {nota}); chiudiEditor(); toast('Rimandata agli agenti'); refresh(); };
+      const archiviata = u.stato === 'archiviata';
+      const aggBottoni = () => {
+        const cr = $('#edTipo').value === 'CR';
+        $('#edArch').classList.toggle('hidden', !cr || archiviata);
+        $('#edSend').textContent = cr ? 'APPROVA' : 'INVIA';
+        const r = $('#edRedo'); if (r) r.classList.toggle('hidden', archiviata);
+        $('#edDev').placeholder = cr ? (archiviata ? 'ID DevOps per approvarla' : 'solo se è già programmata') : 'es. 48213';
+      };
+      $('#edTipo').addEventListener('change', aggBottoni); aggBottoni();
+      $('#edArch').onclick = async () => {
+        const v = vals();
+        if (!(await ask('Archiviare la CR?', `${s.codice || ''} ${s.tipo_originale && s.tipo_originale !== 'CR' ? 'viene riclassificata come CR e ' : ''}va nel magazzino CR: Sospesa nel bug tracker, senza ID DevOps. La approvi quando decidete di farla.`, 'Archivia'))) return;
+        const r = await api(`/api/uscite/${u.id}/archivia`, v);
+        chiudiEditor(); toast(`Archiviata · ${(r.bugTracker && r.bugTracker.esito) || ''}`); refresh();
+      };
       $('#edSend').onclick = async () => {
         const v = vals();
-        if (!v.devops_id) { toast('Scrivi l\'ID DevOps prima di inviare'); $('#edDev').focus(); return; }
-        if (!(await ask('Inviare?', `Il ticket ${s.codice || ''} ${s.tipo_originale && s.tipo_originale !== v.tipo ? 'viene riclassificato come ' + v.tipo + ' e ' : ''}diventa ${v.tipo === 'CR' ? 'Sospesa (CR)' : 'Aperto'} nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti e le tue modifiche finiscono nel Brain.`, 'Invia'))) return;
+        const cr = v.tipo === 'CR';
+        if (!v.devops_id) { toast(cr ? 'Per approvarla serve l\'ID DevOps; altrimenti archiviala' : 'Scrivi l\'ID DevOps prima di inviare'); $('#edDev').focus(); return; }
+        if (!(await ask(cr ? 'Approvare la CR?' : 'Inviare?', `Il ticket ${s.codice || ''} ${s.tipo_originale && s.tipo_originale !== v.tipo ? 'viene riclassificato come ' + v.tipo + ' e ' : ''}diventa ${cr ? 'Approvato' : 'Aperto'} nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti${archiviata ? '' : ' e le tue modifiche finiscono nel Brain'}.`, cr ? 'Approva' : 'Invia'))) return;
         try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); } catch {}
         const r = await api(`/api/uscite/${u.id}/invia`, v);
         chiudiEditor();
-        toast(r.bugTracker && r.bugTracker.ok ? `Inviata · bug tracker: ${r.bugTracker.esito}` : `Inviata, ma bug tracker: ${(r.bugTracker && r.bugTracker.esito) || 'non aggiornato'}`);
+        toast(r.bugTracker && r.bugTracker.ok ? `${cr ? 'Approvata' : 'Inviata'} · bug tracker: ${r.bugTracker.esito}` : `${cr ? 'Approvata' : 'Inviata'}, ma bug tracker: ${(r.bugTracker && r.bugTracker.esito) || 'non aggiornato'}`);
         refresh();
       };
     }
@@ -890,7 +923,7 @@ function apriRisolvi() {
   };
 }
 $('#rvX').onclick = () => $('#rv').classList.remove('show');
-document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'tempi') apriTempi(); else if (b.dataset.act === 'risolvi') apriRisolvi(); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'tempi') apriTempi(); else if (b.dataset.act === 'risolvi') apriRisolvi(); else if (b.dataset.act === 'magazzino') { rightTab = 'cr'; renderRight(); } });
 
 const notif = {stato: 'off', reg: null};
 function b64uBytes(s) { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); }
@@ -1187,7 +1220,7 @@ function buildScene() {
 
   const reps = S.reparti.slice().sort((a, b) => a.ordine - b.ordine);
   const SP = 14.5;
-  const SLOT = {accettazione: [-1, -1], triage: [0, -1], permessi: [1, -1], redazione: [0.5, 1], revisione: [-0.5, 1], monitoraggio: [1.5, 1]};
+  const SLOT = {accettazione: [-1, -1], triage: [0, -1], permessi: [1, -1], redazione: [0.5, 1], revisione: [-0.5, 1], monitoraggio: [1.5, 1], cr: [-1.5, 1]};
   const liberi = [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]].filter(sl => !Object.values(SLOT).some(v => v[0] === sl[0] && v[1] === sl[1]));
   const usati = new Set();
   reps.forEach(r => {
