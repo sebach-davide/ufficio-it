@@ -391,7 +391,7 @@ async function stato(env) {
     db.prepare("SELECT id, reparto_id, agente_id, titolo, dettaglio, origine, stato, progresso, creato, aggiornato FROM task WHERE stato != 'done' OR aggiornato > datetime('now', '-2 days') ORDER BY aggiornato DESC LIMIT 80").all(),
     db.prepare('SELECT id, reparto_id, agente_id, tipo, messaggio, creato FROM eventi ORDER BY id DESC LIMIT 40').all(),
     db.prepare("SELECT s.id, s.ticket_id, s.codice, s.tipo_originale, s.titolo_originale, s.area, s.severita, s.pro_check, s.autore, s.ticket_stato, s.ticket_creato, s.stato, s.tipo, s.modulo, s.priorita, s.permessi, s.doppione_di, s.respingi_motivo, s.aggiornato, u.id AS uscita_id, u.titolo AS uscita_titolo, u.stato AS uscita_stato, u.modificata FROM segnalazioni s LEFT JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato NOT IN ('inviata','scartata') OR s.aggiornato > datetime('now', '-30 days') OR (s.tipo = 'CR' AND s.ticket_stato = 'approvato') ORDER BY s.id DESC LIMIT 300").all(),
-    db.prepare("SELECT COUNT(*) AS n FROM uscite WHERE stato IN ('pronta','bozza')").first(),
+    db.prepare("SELECT COUNT(*) AS n FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND s.stato = 'pronta'").first(),
     db.prepare(`SELECT
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'nuova') AS nuove,
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'in_lavoro') AS inLavoro,
@@ -401,7 +401,7 @@ async function stato(env) {
       (SELECT COUNT(*) FROM segnalazioni WHERE doppione_di IS NOT NULL) AS doppioni,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'probabile') AS permProbabili,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'possibile') AS permPossibili,
-      (SELECT COUNT(*) FROM uscite WHERE stato IN ('pronta','bozza')) AS daRivedere,
+      (SELECT COUNT(*) FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND s.stato = 'pronta') AS daRivedere,
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'archiviata') AS crArchiviate,
       (SELECT COUNT(*) FROM segnalazioni WHERE tipo = 'BUG' AND stato NOT IN ('nuova','scartata') AND creato > datetime('now','-30 days')) AS bug30,
       (SELECT COUNT(*) FROM segnalazioni WHERE tipo = 'CR' AND stato NOT IN ('nuova','scartata') AND creato > datetime('now','-30 days')) AS cr30,
