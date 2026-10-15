@@ -601,7 +601,7 @@ function segItem(s, conAzione) {
   const [l, c] = SEG_LBL[s.stato] || [s.stato.toUpperCase(), ''];
   const titolo = s.uscita_titolo || s.titolo_originale;
   const pm = PERM_LBL[s.permessi];
-  return `<div class="titem ${s.stato === 'pronta' ? 'wait' : ''} clic" data-seg="${s.id}"><span class="pill ${c}">${s.uscita_stato === 'bozza' && s.stato === 'pronta' ? 'BOZZA' : l}</span><div>
+  return `<div class="titem ${s.stato === 'pronta' ? 'wait' : ''} clic" data-seg="${s.id}"><span class="pill ${c}">${s.tipo === 'CR' && s.stato === 'pronta' ? 'CR IN ATTESA' : s.uscita_stato === 'bozza' && s.stato === 'pronta' ? 'BOZZA' : l}</span><div>
     <div class="t">${esc(titolo)}</div>
     <div class="m">${esc(s.codice || '#' + s.ticket_id)} · ${esc(s.tipo || s.tipo_originale || '')}${s.priorita ? ' · ' + esc(s.priorita) : s.severita ? ' · ' + esc(s.severita) : ''} · ${esc(s.autore || '')} · ${ago(s.aggiornato)}</div>
     <div>${pm && s.permessi !== 'escluso' ? `<span class="tk ${pm[1]}">${pm[0]}</span>` : ''}${s.doppione_di ? `<span class="tk">DOPPIONE DI #${esc(s.doppione_di)}</span>` : ''}${s.respingi_motivo ? '<span class="tk rifiutato">DA RESPINGERE?</span>' : ''}${s.ticket_stato ? `<span class="tk">BT: ${esc(TK_LBL[s.ticket_stato] || s.ticket_stato)}</span>` : ''}${s.modificata ? '<span class="tk" style="color:var(--gold)">CORRETTA DA TE</span>' : ''}</div>
@@ -614,7 +614,7 @@ function renderRight() {
   const r = selected ? S.reparti.find(x => x.id === selected) : null;
   const bindOpen = () => B.querySelectorAll('[data-seg]').forEach(el => el.onclick = e => { e.stopPropagation(); apriEditor(Number(el.dataset.seg)); });
   if (rightTab === 'revisione') {
-    const list = S.segnalazioni.filter(s => s.stato === 'pronta');
+    const list = S.segnalazioni.filter(s => s.stato === 'pronta' && s.tipo !== 'CR');
     T.innerHTML = `<div class="composer"><div class="who"><span class="dot" style="background:#8e6bd8"></span>Revisione · ${list.length} da inviare</div><div class="note">Apri una segnalazione, correggi quello che vuoi, scrivi l'ID DevOps e premi INVIA: il ticket diventa Aperto nel bug tracker (Sospesa se è una CR) e il Brain studia le tue correzioni.</div></div>`;
     B.innerHTML = list.map(s => segItem(s, true)).join('') || `<div class="empty">Niente da rivedere.${S.metriche.nuove ? `<br>${S.metriche.nuove} segnalazioni in coda agli agenti.` : ''}</div>`;
     bindOpen();
@@ -622,7 +622,7 @@ function renderRight() {
   }
   if (rightTab === 'segnalazioni') {
     T.innerHTML = `<div class="composer"><div class="who">Segnalazioni dal bug tracker</div><div class="note">Arrivano da sole: il Worker controlla il bug tracker ogni 10 minuti e passa agli agenti quelle in stato Nuovo. Le inviate restano seguite fino a Risolto.</div><div class="acts"><button class="btn gold sm" data-act="risolvi">SEGNA RISOLTI DA ID DEVOPS</button><button class="btn sm" data-act="tempi">TEMPI</button></div></div>`;
-    const flt = [['attive', 'Attive', s => !['inviata', 'scartata'].includes(s.stato)], ['nuova', 'In coda', s => s.stato === 'nuova'], ['in_lavoro', 'In lavoro', s => s.stato === 'in_lavoro'], ['pronta', 'Da rivedere', s => s.stato === 'pronta'], ['inviata', 'Inviate', s => s.stato === 'inviata'], ['scartata', 'Scartate', s => s.stato === 'scartata'], ['tutte', 'Tutte', () => true]];
+    const flt = [['attive', 'Attive', s => !['inviata', 'scartata'].includes(s.stato)], ['nuova', 'In coda', s => s.stato === 'nuova'], ['in_lavoro', 'In lavoro', s => s.stato === 'in_lavoro'], ['pronta', 'Da rivedere', s => s.stato === 'pronta' && s.tipo !== 'CR'], ['cr', 'CR in attesa', s => s.stato === 'pronta' && s.tipo === 'CR'], ['inviata', 'Inviate', s => s.stato === 'inviata'], ['scartata', 'Scartate', s => s.stato === 'scartata'], ['tutte', 'Tutte', () => true]];
     const f = flt.find(x => x[0] === segFilter) || flt[0];
     const shown = S.segnalazioni.filter(f[2]);
     B.innerHTML = `<div class="chips">${flt.map(([k, l, fn]) => `<button class="fchip ${segFilter === k ? 'on' : ''}" data-f="${k}">${l} ${S.segnalazioni.filter(fn).length}</button>`).join('')}</div>

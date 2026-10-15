@@ -365,7 +365,7 @@ async function stato(env) {
     db.prepare("SELECT id, reparto_id, agente_id, titolo, dettaglio, origine, stato, progresso, creato, aggiornato FROM task WHERE stato != 'done' OR aggiornato > datetime('now', '-2 days') ORDER BY aggiornato DESC LIMIT 80").all(),
     db.prepare('SELECT id, reparto_id, agente_id, tipo, messaggio, creato FROM eventi ORDER BY id DESC LIMIT 40').all(),
     db.prepare("SELECT s.id, s.ticket_id, s.codice, s.tipo_originale, s.titolo_originale, s.area, s.severita, s.pro_check, s.autore, s.ticket_stato, s.ticket_creato, s.stato, s.tipo, s.modulo, s.priorita, s.permessi, s.doppione_di, s.respingi_motivo, s.aggiornato, u.id AS uscita_id, u.titolo AS uscita_titolo, u.stato AS uscita_stato, u.modificata FROM segnalazioni s LEFT JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato NOT IN ('inviata','scartata') OR s.aggiornato > datetime('now', '-30 days') ORDER BY s.id DESC LIMIT 200").all(),
-    db.prepare("SELECT COUNT(*) AS n FROM uscite WHERE stato IN ('pronta','bozza')").first(),
+    db.prepare("SELECT COUNT(*) AS n FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND COALESCE(s.tipo, '') != 'CR'").first(),
     db.prepare(`SELECT
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'nuova') AS nuove,
       (SELECT COUNT(*) FROM segnalazioni WHERE stato = 'in_lavoro') AS inLavoro,
@@ -375,7 +375,8 @@ async function stato(env) {
       (SELECT COUNT(*) FROM segnalazioni WHERE doppione_di IS NOT NULL) AS doppioni,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'probabile') AS permProbabili,
       (SELECT COUNT(*) FROM segnalazioni WHERE permessi = 'possibile') AS permPossibili,
-      (SELECT COUNT(*) FROM uscite WHERE stato IN ('pronta','bozza')) AS daRivedere,
+      (SELECT COUNT(*) FROM uscite u JOIN segnalazioni s ON s.id = u.segnalazione_id WHERE u.stato IN ('pronta','bozza') AND COALESCE(s.tipo, '') != 'CR') AS daRivedere,
+      (SELECT COUNT(*) FROM segnalazioni WHERE tipo = 'CR' AND stato = 'pronta') AS crAttesa,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'pronta') AS pronte,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata' AND inviata_il > datetime('now','-7 days')) AS inviate7,
       (SELECT COUNT(*) FROM uscite WHERE stato = 'inviata') AS inviate,
@@ -461,7 +462,7 @@ async function apiDashboard(req, env, url, ctx) {
 
   if (p === '/api/push/ultime' && m === 'GET') {
     const prova = await getImp(env, 'push_prova');
-    const { results } = await db.prepare("SELECT s.id, s.ticket_id, s.codice, u.titolo FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND s.notificata_il > datetime('now', '-30 minutes') ORDER BY s.notificata_il DESC LIMIT 10").all();
+    const { results } = await db.prepare("SELECT s.id, s.ticket_id, s.codice, u.titolo FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND COALESCE(s.tipo, '') != 'CR' AND s.notificata_il > datetime('now', '-30 minutes') ORDER BY s.notificata_il DESC LIMIT 10").all();
     if (!results.length && prova && Date.now() - Date.parse(prova) < 120000) return json([{ id: 0, codice: 'PROVA', titolo: 'Le notifiche dell\'Ufficio IT funzionano' }]);
     return json(results);
   }
@@ -726,7 +727,7 @@ async function inviaPush(env, origine) {
 }
 
 async function notificaPronte(env) {
-  const { results } = await env.DB.prepare("SELECT s.id FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND (s.notificata_il IS NULL OR u.aggiornato > s.notificata_il)").all();
+  const { results } = await env.DB.prepare("SELECT s.id FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND COALESCE(s.tipo, '') != 'CR' AND (s.notificata_il IS NULL OR u.aggiornato > s.notificata_il)").all();
   if (!results.length) return 0;
   await env.DB.batch(results.map(r => env.DB.prepare("UPDATE segnalazioni SET notificata_il = datetime('now') WHERE id = ?1").bind(r.id)));
   await inviaPush(env, env.ORIGINE || 'https://ufficio-it.sebach-reparto-it.workers.dev');
