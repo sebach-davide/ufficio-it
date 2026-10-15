@@ -32,6 +32,7 @@ header{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px
 .sep{width:1px;height:20px;background:var(--line2)}
 .conn{display:flex;align-items:center;gap:6px;font:500 10px var(--mono);letter-spacing:1px;color:var(--mute);text-transform:uppercase;min-width:0;overflow:hidden}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:7px;background:var(--card);border:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+.bell{width:34px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-size:14px;line-height:1;filter:grayscale(1);opacity:.55;position:relative}.bell.on{filter:none;opacity:1;border-color:rgba(227,179,65,.45);background:var(--gold-bg)}.bell:hover{opacity:1}
 #syncChip{font:600 10.5px var(--mono);letter-spacing:.8px;font-variant-numeric:tabular-nums;min-width:196px;justify-content:center;cursor:default}
 .tiles{display:flex;gap:5px}
 .tile{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:8px;background:#e9e6dc;border:1px solid rgba(0,0,0,.2);color:#22243a;font:600 9.5px var(--mono);letter-spacing:.6px}
@@ -272,6 +273,7 @@ main{position:relative;overflow:hidden;min-height:0}
     <div class="conn"><span>Collegato a</span><div class="tiles" id="tiles"></div></div>
     <div class="grow"></div>
     <div class="hright">
+      <button class="bell" id="notifBtn" title="Notifiche desktop">🔔</button>
       <span class="chip opt" id="syncChip">—</span>
       <div class="toggle" id="autoToggle" role="switch" aria-checked="false" tabindex="0"><span class="lbl">AVVIO AUTO</span><span class="sw"></span></div>
       <button class="kill paused" id="runBtn">▶ AVVIA ORA</button>
@@ -514,6 +516,7 @@ function renderLeft() {
           <span>Ultimo avvio</span><b>${imp.ultimoAvvio ? ago(imp.ultimoAvvio) : 'mai'}</b>
           <span>Lettura bug tracker</span><b>${imp.auto ? 'ogni 10 min' : 'in pausa'}</b>
           <span>Brain</span><b>${S.brain.documento || 0} doc · ${S.brain.nozione || 0} nozioni</b>
+          <span>Notifiche desktop</span><b>${notif.stato === 'on' ? '<span style="color:var(--green)">attive</span>' : notif.stato === 'negate' ? '<span style="color:var(--red)">bloccate dal browser</span>' : notif.stato === 'no' ? 'non supportate' : 'spente'}</b>
         </div>
         ${imp.sessione ? `<div class="note" style="margin-top:8px"><a href="${esc(imp.sessione)}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">Apri l'ultima sessione degli agenti ↗</a></div>` : ''}
       </div>
@@ -888,6 +891,47 @@ function apriRisolvi() {
 }
 $('#rvX').onclick = () => $('#rv').classList.remove('show');
 document.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'tempi') apriTempi(); else if (b.dataset.act === 'risolvi') apriRisolvi(); });
+
+const notif = {stato: 'off', reg: null};
+function b64uBytes(s) { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+function disegnaNotif() { const b = $('#notifBtn'); if (!b) return; b.classList.toggle('on', notif.stato === 'on'); b.title = notif.stato === 'on' ? 'Notifiche desktop attive: clic per provarle o spegnerle' : notif.stato === 'negate' ? 'Notifiche bloccate dal browser: riattivale dal lucchetto accanto all\'indirizzo' : notif.stato === 'no' ? 'Questo browser non supporta le notifiche push' : 'Attiva le notifiche desktop quando una segnalazione è pronta in Revisione'; }
+async function initNotif() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { notif.stato = 'no'; return disegnaNotif(); }
+  try {
+    notif.reg = await navigator.serviceWorker.register('/sw.js');
+    const sub = await notif.reg.pushManager.getSubscription();
+    notif.stato = Notification.permission === 'denied' ? 'negate' : sub ? 'on' : 'off';
+    if (sub) api('/api/push/iscrivi', {subscription: sub.toJSON()}).catch(() => {});
+  } catch { notif.stato = 'no'; }
+  disegnaNotif();
+}
+async function attivaNotif() {
+  if (notif.stato === 'no') { toast('Questo browser non supporta le notifiche push'); return; }
+  if (notif.stato === 'on') {
+    const scelta = await ask('Notifiche desktop attive', 'Ti arriva una notifica quando una segnalazione è pronta in Revisione, anche con la dashboard chiusa (basta il browser aperto). Vuoi spegnerle su questo browser?', 'Spegni');
+    if (scelta) { const sub = await notif.reg.pushManager.getSubscription(); if (sub) { await api('/api/push/disiscrivi', {endpoint: sub.endpoint}).catch(() => {}); await sub.unsubscribe(); } notif.stato = 'off'; disegnaNotif(); toast('Notifiche spente'); refresh(); }
+    else { const r = await api('/api/push/prova', {}); toast(r.inviate ? 'Notifica di prova inviata' : 'Prova non riuscita: nessun browser iscritto'); }
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { notif.stato = perm === 'denied' ? 'negate' : 'off'; disegnaNotif(); toast('Permesso alle notifiche non concesso'); return; }
+  try {
+    const {pub} = await api('/api/push/chiave');
+    const sub = await notif.reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64uBytes(pub)});
+    await api('/api/push/iscrivi', {subscription: sub.toJSON()});
+    notif.stato = 'on'; disegnaNotif(); refresh();
+    const r = await api('/api/push/prova', {});
+    toast(r.inviate ? 'Notifiche attive: ti ho mandato una prova' : 'Notifiche attive');
+  } catch (e) { toast('Attivazione non riuscita: ' + (e.message || e)); }
+}
+$('#notifBtn').onclick = attivaNotif;
+function apriDaUrl(u) {
+  const q = new URL(u, location.href).searchParams;
+  if (q.get('seg') && Number(q.get('seg'))) { rightTab = 'revisione'; renderRight(); apriEditor(Number(q.get('seg'))); }
+  else if (q.get('tab')) { rightTab = q.get('tab'); renderRight(); }
+  if (location.search) history.replaceState(null, '', '/');
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.apri) apriDaUrl(e.data.apri); });
 
 function chiudiEditor() { $('#ed').classList.remove('show'); edCur = null; }
 $('#edX').onclick = chiudiEditor;
@@ -1478,7 +1522,8 @@ renderLeft = conservaInput(renderLeft);
 renderRight = conservaInput(renderRight);
 resize();
 requestAnimationFrame(animate);
-refresh();
+refresh().then(() => { if (location.search) apriDaUrl(location.href); });
+initNotif();
 setInterval(() => { if (!document.hidden) refresh(); }, 5000);
 setInterval(() => { if (selected && !document.hidden) loadChat(selected); }, 12000);
 addEventListener('resize', () => { if (!selected) fit(false); });

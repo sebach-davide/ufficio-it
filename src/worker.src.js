@@ -345,6 +345,7 @@ async function controllo(env, motivo, forza) {
     await setImp(env, 'ultimo_sync_esito', 'errore: ' + txt(e.message || e, 200));
     sync = { errore: String(e.message || e) };
   }
+  try { await notificaPronte(env); } catch (e) { console.error('notifiche', e); }
   try {
     const ut = await getImp(env, 'ultimi_tempi');
     if (forza || !ut || Date.now() - Date.parse(ut) > 55 * 60000) await aggiornaTempi(env);
@@ -435,6 +436,34 @@ async function apiDashboard(req, env, url, ctx) {
   if (p === '/api/avvia' && m === 'POST') {
     const r = await controllo(env, 'forzato da Davide', true);
     return json(r);
+  }
+
+  if (p === '/api/push/chiave' && m === 'GET') return json({ pub: (await chiaviVapid(env)).pub });
+
+  if (p === '/api/push/iscrivi' && m === 'POST') {
+    const b = await body(req);
+    const ep = String((b.subscription && b.subscription.endpoint) || '');
+    if (!/^https:\/\//.test(ep)) return json({ errore: 'Iscrizione non valida' }, 400);
+    await db.prepare("INSERT INTO push (endpoint, dati, browser) VALUES (?1, ?2, ?3) ON CONFLICT(endpoint) DO UPDATE SET dati = excluded.dati, browser = excluded.browser").bind(ep, JSON.stringify(b.subscription).slice(0, 4000), txt(req.headers.get('user-agent'), 300)).run();
+    return json({ ok: true });
+  }
+
+  if (p === '/api/push/disiscrivi' && m === 'POST') {
+    const b = await body(req);
+    await db.prepare('DELETE FROM push WHERE endpoint = ?1').bind(String(b.endpoint || '')).run();
+    return json({ ok: true });
+  }
+
+  if (p === '/api/push/prova' && m === 'POST') {
+    await setImp(env, 'push_prova', new Date().toISOString());
+    return json(await inviaPush(env, url.origin));
+  }
+
+  if (p === '/api/push/ultime' && m === 'GET') {
+    const prova = await getImp(env, 'push_prova');
+    const { results } = await db.prepare("SELECT s.id, s.ticket_id, s.codice, u.titolo FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND s.notificata_il > datetime('now', '-30 minutes') ORDER BY s.notificata_il DESC LIMIT 10").all();
+    if (!results.length && prova && Date.now() - Date.parse(prova) < 120000) return json([{ id: 0, codice: 'PROVA', titolo: 'Le notifiche dell\'Ufficio IT funzionano' }]);
+    return json(results);
   }
 
   if (p === '/api/risolvi/anteprima' && m === 'POST') {
@@ -640,6 +669,67 @@ async function apiDashboard(req, env, url, ctx) {
   return json({ errore: 'Non trovato' }, 404);
 }
 
+const SW_JS = `self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('push', e => e.waitUntil((async () => {
+  let r = [];
+  try { const x = await fetch('/api/push/ultime', { credentials: 'include', cache: 'no-store' }); if (x.ok) r = await x.json(); } catch (_) {}
+  const titolo = r.length > 1 ? r.length + ' segnalazioni pronte in Revisione' : 'Pronta in Revisione';
+  const corpo = r.length ? r.slice(0, 4).map(x => (x.codice || '#' + x.ticket_id) + ' · ' + (x.titolo || '')).join('\\n') : 'Una segnalazione aspetta la tua revisione.';
+  await self.registration.showNotification(titolo, { body: corpo, tag: 'ufficio-it-revisione', renotify: true, icon: '/icona.svg', badge: '/icona.svg', data: { url: r.length === 1 ? '/?seg=' + r[0].id : '/?tab=revisione' } });
+})()));
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil((async () => {
+    const cl = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of cl) { if (new URL(c.url).origin === self.location.origin) { await c.focus(); c.postMessage({ apri: url }); return; } }
+    await self.clients.openWindow(url);
+  })());
+});`;
+
+const ICONA_SVG = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='#1b1d2e'/><path d='M32 11 51 22 32 33 13 22Z' fill='#f2c75c'/><path d='M13 22 32 33V54L13 43Z' fill='#c9952b'/><path d='M51 22 32 33V54L51 43Z' fill='#e3b341'/><path d='M32 33V54' stroke='#1b1d2e' stroke-width='1.5'/></svg>`;
+
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+async function chiaviVapid(env) {
+  const v = await getImp(env, 'vapid');
+  if (v) { try { return JSON.parse(v); } catch {} }
+  const k = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const out = { pub: b64u(await crypto.subtle.exportKey('raw', k.publicKey)), jwk: await crypto.subtle.exportKey('jwk', k.privateKey) };
+  await setImp(env, 'vapid', JSON.stringify(out));
+  return out;
+}
+
+async function inviaPush(env, origine) {
+  const { results } = await env.DB.prepare('SELECT endpoint FROM push').all();
+  if (!results.length) return { inviate: 0, iscritti: 0 };
+  const V = await chiaviVapid(env);
+  const key = await crypto.subtle.importKey('jwk', V.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const enc = o => b64u(new TextEncoder().encode(JSON.stringify(o)));
+  let inviate = 0;
+  for (const { endpoint } of results) {
+    try {
+      const aud = new URL(endpoint).origin;
+      const dati = enc({ typ: 'JWT', alg: 'ES256' }) + '.' + enc({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: origine });
+      const firma = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(dati));
+      const r = await fetch(endpoint, { method: 'POST', headers: { authorization: `vapid t=${dati}.${b64u(firma)}, k=${V.pub}`, ttl: '86400', urgency: 'high', 'content-length': '0' } });
+      if (r.status === 404 || r.status === 410) await env.DB.prepare('DELETE FROM push WHERE endpoint = ?1').bind(endpoint).run();
+      else if (r.ok) inviate++;
+      else console.error('push', r.status, await r.text().catch(() => ''));
+    } catch (e) { console.error('push', e); }
+  }
+  return { inviate, iscritti: results.length };
+}
+
+async function notificaPronte(env) {
+  const { results } = await env.DB.prepare("SELECT s.id FROM segnalazioni s JOIN uscite u ON u.segnalazione_id = s.id WHERE s.stato = 'pronta' AND u.stato = 'pronta' AND (s.notificata_il IS NULL OR u.aggiornato > s.notificata_il)").all();
+  if (!results.length) return 0;
+  await env.DB.batch(results.map(r => env.DB.prepare("UPDATE segnalazioni SET notificata_il = datetime('now') WHERE id = ?1").bind(r.id)));
+  await inviaPush(env, env.ORIGINE || 'https://ufficio-it.sebach-reparto-it.workers.dev');
+  return results.length;
+}
+
 export default {
   async scheduled(ev, env, ctx) {
     if (env.SESSION_KEY) ctx.waitUntil(controllo(env, 'automatico (controllo ogni 10 minuti)', false).catch(e => console.error(e)));
@@ -647,6 +737,9 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!env.SESSION_KEY || !env.DASH_PASSWORD) return new Response('Configura i secret DASH_PASSWORD e SESSION_KEY nelle impostazioni del Worker.', { status: 500 });
+
+    if (url.pathname === '/sw.js') return new Response(SW_JS, { headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
+    if (url.pathname === '/icona.svg') return new Response(ICONA_SVG, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
 
     if (url.pathname === '/login' && req.method === 'POST') {
       const b = await body(req);
