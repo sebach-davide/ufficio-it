@@ -708,18 +708,21 @@ async function inviaPush(env, origine) {
   const key = await crypto.subtle.importKey('jwk', V.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const enc = o => b64u(new TextEncoder().encode(JSON.stringify(o)));
   let inviate = 0;
+  const esiti = [];
   for (const { endpoint } of results) {
     try {
       const aud = new URL(endpoint).origin;
       const dati = enc({ typ: 'JWT', alg: 'ES256' }) + '.' + enc({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: origine });
       const firma = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(dati));
-      const r = await fetch(endpoint, { method: 'POST', headers: { authorization: `vapid t=${dati}.${b64u(firma)}, k=${V.pub}`, ttl: '86400', urgency: 'high', 'content-length': '0' } });
+      const r = await fetch(endpoint, { method: 'POST', headers: { authorization: `vapid t=${dati}.${b64u(firma)}, k=${V.pub}`, ttl: '86400', urgency: 'high' }, body: '' });
+      const testo = await r.text().catch(() => '');
+      esiti.push({ servizio: new URL(endpoint).host, status: r.status, risposta: testo.slice(0, 300) });
       if (r.status === 404 || r.status === 410) await env.DB.prepare('DELETE FROM push WHERE endpoint = ?1').bind(endpoint).run();
       else if (r.ok) inviate++;
-      else console.error('push', r.status, await r.text().catch(() => ''));
-    } catch (e) { console.error('push', e); }
+    } catch (e) { esiti.push({ servizio: endpoint.slice(0, 40), errore: String(e.message || e) }); }
   }
-  return { inviate, iscritti: results.length };
+  await setImp(env, 'push_esito', JSON.stringify({ quando: new Date().toISOString(), esiti }));
+  return { inviate, iscritti: results.length, esiti };
 }
 
 async function notificaPronte(env) {

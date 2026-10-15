@@ -910,7 +910,7 @@ async function attivaNotif() {
   if (notif.stato === 'on') {
     const scelta = await ask('Notifiche desktop attive', 'Ti arriva una notifica quando una segnalazione è pronta in Revisione, anche con la dashboard chiusa (basta il browser aperto). Vuoi spegnerle su questo browser?', 'Spegni');
     if (scelta) { const sub = await notif.reg.pushManager.getSubscription(); if (sub) { await api('/api/push/disiscrivi', {endpoint: sub.endpoint}).catch(() => {}); await sub.unsubscribe(); } notif.stato = 'off'; disegnaNotif(); toast('Notifiche spente'); refresh(); }
-    else { const r = await api('/api/push/prova', {}); toast(r.inviate ? 'Notifica di prova inviata' : 'Prova non riuscita: nessun browser iscritto'); }
+    else { await provaNotif(); }
     return;
   }
   const perm = await Notification.requestPermission();
@@ -920,9 +920,15 @@ async function attivaNotif() {
     const sub = await notif.reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64uBytes(pub)});
     await api('/api/push/iscrivi', {subscription: sub.toJSON()});
     notif.stato = 'on'; disegnaNotif(); refresh();
-    const r = await api('/api/push/prova', {});
-    toast(r.inviate ? 'Notifiche attive: ti ho mandato una prova' : 'Notifiche attive');
+    await provaNotif();
   } catch (e) { toast('Attivazione non riuscita: ' + (e.message || e)); }
+}
+async function provaNotif() {
+  try { await notif.reg.showNotification('Prova locale · Ufficio IT', {body: 'Se vedi questa, Windows e il browser mostrano le notifiche.', tag: 'ufficio-it-locale', icon: '/icona.svg'}); } catch (e) { toast('Il browser non mostra notifiche: ' + (e.message || e)); return; }
+  const r = await api('/api/push/prova', {});
+  const e = (r.esiti || []).map(x => x.status ? `${x.servizio} ${x.status}${x.status >= 300 ? ' ' + (x.risposta || '') : ''}` : `${x.servizio}: ${x.errore}`).join(' · ');
+  toast(r.inviate ? `Push inviata (${e}): tra pochi secondi deve arrivare anche «Pronta in Revisione»` : `Push non accettata: ${e || 'nessun browser iscritto'}`);
+  console.log('push esiti', r);
 }
 $('#notifBtn').onclick = attivaNotif;
 function apriDaUrl(u) {
