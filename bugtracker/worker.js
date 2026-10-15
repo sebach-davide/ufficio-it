@@ -1290,7 +1290,6 @@ tbody tr:hover{background:#FFF7F8}
           <button class="btn hidden" id="btn-importa-devops">Importa ID DevOps</button>
           <button class="btn hidden" id="btn-risolvi-devops">Segna risolti (DevOps)</button>
           <input type="file" id="imp-devops-file" accept=".csv,text/csv" style="display:none">
-          <button class="btn hidden" id="btn-rapida">Segnalazione rapida</button>
           <button class="btn primario" id="btn-nuovo">+ Nuova segnalazione</button>
         </div>
       </div>
@@ -1580,7 +1579,6 @@ async function avvia(){
   $('#btn-devops').classList.toggle('hidden', S.me.role!=='admin');
   $('#btn-importa-devops').classList.toggle('hidden', S.me.role!=='admin');
   $('#btn-risolvi-devops').classList.toggle('hidden', S.me.role!=='admin');
-  $('#btn-rapida').classList.toggle('hidden', S.me.role!=='admin');
   await caricaAree();
   await caricaTags();
   await caricaTicket();
@@ -2346,52 +2344,82 @@ async function avanti(){
     $('#wiz-avanti').disabled = false;
   }
 }
-$('#btn-nuovo').onclick = ()=>apriWizard();
+$('#btn-nuovo').onclick = ()=>apriSegnalazioneRapida();
 
 /* ============================================================
-   Segnalazione rapida (solo admin): apre subito con Titolo e
-   Descrizione soltanto, per non perdere tempo in fase di UAT.
+   Nuova segnalazione: solo titolo, descrizione e allegati.
+   Il resto (tipo, area, gravità) lo ricava l'Ufficio IT.
    ============================================================ */
 function apriSegnalazioneRapida(){
+  const file = [];
   $('#wizard-host').innerHTML = \`
   <div class="modale" id="sr-velo">
-    <div style="background:#fff;border-radius:14px;width:min(520px,100%);padding:26px;max-height:90vh;overflow:auto">
+    <div style="background:#fff;border-radius:14px;width:min(560px,100%);padding:26px;max-height:92vh;overflow:auto">
       <div style="display:flex;align-items:center;margin-bottom:6px">
-        <h3 class="disp" style="font-size:22px;text-transform:uppercase">Segnalazione rapida</h3>
-        <button class="chiudi" id="sr-chiudi" style="margin-left:auto">×</button>
+        <h3 class="disp" style="font-size:22px;text-transform:uppercase">Nuova segnalazione</h3>
+        <button class="chiudi" id="sr-chiudi" style="margin-left:auto" aria-label="Chiudi">×</button>
       </div>
       <p style="color:var(--grigio);font-size:13px;margin:0 0 16px">
-        Solo titolo e descrizione, senza gli step guidati — pensata per tracciare in fretta durante l'UAT.
-        Area «UAT» di default: si può cambiare dopo con «Modifica i dati».
+        Scrivi cosa succede con parole tue e allega uno screenshot se puoi. Al resto pensiamo noi.
       </p>
       <label class="campo"><span>Titolo</span>
-        <input type="text" id="sr-titolo" maxlength="200" placeholder="Errore su emissione di una fattura"></label>
+        <input type="text" id="sr-titolo" maxlength="200" placeholder="Es. Errore quando emetto una fattura"></label>
       <label class="campo"><span>Descrizione</span>
-        <textarea id="sr-descrizione" style="min-height:130px" placeholder="Cosa succede, in che schermata, con quale documento…"></textarea></label>
-      <div style="display:flex;gap:10px">
-        <label class="campo" style="flex:1"><span>Tipo</span>
-          <select id="sr-tipo">
-            <option value="BUG">Bug</option>
-            <option value="CR">Change Request</option>
-          </select></label>
-        <label class="campo" style="flex:1"><span>Tag</span>
-          <select id="sr-tag">
-            <option value="">Nessuno</option>
-            \${S.tags.map(tg=>\`<option>\${esc(tg.name)}</option>\`).join('')}
-          </select></label>
+        <textarea id="sr-descrizione" style="min-height:150px" placeholder="Cosa stavi facendo, in che schermata, con quale documento o cliente, e cosa è successo."></textarea></label>
+      <div class="campo"><span>Allegati</span>
+        <div id="sr-drop" style="border:1.5px dashed var(--bordo);border-radius:10px;padding:14px;text-align:center;color:var(--grigio);font-size:13px;cursor:pointer">
+          Trascina qui i file, <u>sfoglia</u>, oppure incolla uno screenshot con Ctrl+V
+        </div>
+        <input type="file" id="sr-file" multiple style="display:none"
+          accept="image/*,application/pdf,.txt,.csv,.xlsx,.xls,.docx,.doc,.msg,.eml">
+        <div id="sr-lista" style="margin-top:8px"></div>
       </div>
       <div class="errore" id="sr-err"></div>
       <div style="display:flex;gap:8px">
         <button class="btn" id="sr-annulla" style="flex:1">Annulla</button>
-        <button class="btn primario" id="sr-crea" style="flex:1">Crea</button>
+        <button class="btn primario" id="sr-crea" style="flex:1">Invia segnalazione</button>
       </div>
     </div>
   </div>\`;
-  const chiudi = ()=>{ $('#wizard-host').innerHTML=''; };
+  const chiudi = ()=>{ document.removeEventListener('paste', incolla); $('#wizard-host').innerHTML=''; };
   $('#sr-chiudi').onclick = chiudi;
   $('#sr-annulla').onclick = chiudi;
   $('#sr-velo').onclick = (e)=>{ if(e.target.id==='sr-velo') chiudi(); };
   $('#sr-titolo').focus();
+
+  const disegna = ()=>{
+    $('#sr-lista').innerHTML = file.map((f,i)=>\`
+      <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--bordo);border-radius:10px;padding:8px 12px;margin-bottom:6px">
+        <span style="font-size:17px">\${iconaFile(f.mime)}</span>
+        <span style="flex:1;word-break:break-all;font-size:13px">\${esc(f.filename)}</span>
+        <span style="color:var(--grigio);font-size:12px;white-space:nowrap">\${pesoLeggibile(f.data.length*0.75)}</span>
+        <button class="btn mini" data-togli="\${i}" type="button">Togli</button>
+      </div>\`).join('');
+    $$('[data-togli]', $('#sr-lista')).forEach(b=>b.onclick=()=>{ file.splice(Number(b.dataset.togli),1); disegna(); });
+  };
+  const aggiungi = async (lista)=>{
+    $('#sr-err').textContent = '';
+    for(const f of lista){
+      if(file.length >= MAX_ALLEGATI){ $('#sr-err').textContent = \`Massimo \${MAX_ALLEGATI} allegati.\`; break; }
+      try{
+        const pronto = await preparaFile(f);
+        if(/^image\.(jpg|png)$/i.test(pronto.filename)) pronto.filename = \`screenshot-\${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.jpg\`;
+        file.push(pronto);
+      }catch(e){ $('#sr-err').textContent = e.message; }
+    }
+    disegna();
+  };
+  const drop = $('#sr-drop'), input = $('#sr-file');
+  drop.onclick = ()=>input.click();
+  input.onchange = async ()=>{ await aggiungi([...input.files]); input.value=''; };
+  drop.ondragover = (e)=>{ e.preventDefault(); drop.style.borderColor='var(--rosso)'; };
+  drop.ondragleave = ()=>{ drop.style.borderColor=''; };
+  drop.ondrop = (e)=>{ e.preventDefault(); drop.style.borderColor=''; aggiungi([...e.dataTransfer.files]); };
+  function incolla(e){
+    const f = [...(e.clipboardData?.files||[])];
+    if(f.length){ e.preventDefault(); aggiungi(f); }
+  }
+  document.addEventListener('paste', incolla);
 
   $('#sr-crea').onclick = async ()=>{
     $('#sr-err').textContent = '';
@@ -2401,13 +2429,18 @@ function apriSegnalazioneRapida(){
     if(descrizione.length<15){ $('#sr-err').textContent = 'La descrizione deve avere almeno 15 caratteri.'; return; }
     $('#sr-crea').disabled = true;
     try{
-      const tipoCr = $('#sr-tipo').value==='CR';
       const nuovo = await api('/tickets',{method:'POST',body:{
-        title:titolo, area:'UAT', error_text:descrizione,
-        pro_check: tipoCr ? 'anche_su_pro' : 'non_applicabile',
-        severity:'media', tag:$('#sr-tag').value
+        title:titolo, area:'Da classificare', error_text:descrizione,
+        pro_check:'non_verificato', severity:'media'
       }});
-      toast(\`Segnalazione \${nuovo.code} creata.\`);
+      const falliti = [];
+      for(const f of file){
+        try{ await api(\`/tickets/\${nuovo.id}/attachments\`,{method:'POST',body:f}); }
+        catch(e){ falliti.push(f.filename); }
+      }
+      toast(falliti.length
+        ? \`Segnalazione \${nuovo.code} inviata, ma non ho caricato: \${falliti.join(', ')}\`
+        : \`Segnalazione \${nuovo.code} inviata. Grazie!\`, falliti.length>0);
       chiudi();
       await caricaTicket();
       await apriTicket(nuovo.id);
@@ -2420,7 +2453,6 @@ function apriSegnalazioneRapida(){
     if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) $('#sr-crea').click();
   });
 }
-$('#btn-rapida').onclick = apriSegnalazioneRapida;
 
 /* ============================================================
    Utenti
