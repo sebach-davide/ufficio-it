@@ -1226,6 +1226,127 @@ function animaArchivio(dt) {
   rm.archivio.boxes.forEach(b => { if (b.g.position.y > b.y) { b.v = (b.v || 0) + dt * 14; b.g.position.y = Math.max(b.y, b.g.position.y - b.v * dt); if (b.g.position.y === b.y) b.v = 0; } });
 }
 
+const DEC = {
+  scuro: M('#2d2f3d'), legno: M('#8a6440', {roughness: .85}), legnoC: M('#a77d52', {roughness: .85}), sughero: M('#b58a5a', {roughness: .95}),
+  metallo: M('#9aa0b4', {roughness: .4, metalness: .5}), oro: M('#e3b341', {roughness: .35, metalness: .6}), rosso: M('#d9534f'), verde: M('#4cc27a'), giallo: M('#f2c75c'),
+  bianco: M('#f4f1e8'), lavagna: M('#22352b', {roughness: .95})
+};
+const LIBRI = ['#b4495a', '#3f7cb8', '#3c9a76', '#c9952b', '#7a5aa6', '#d77a3d', '#5f6b7a', '#2f8f9d'].map(c => M(c, {roughness: .8}));
+const prng = seed => { let x = seed * 9301 + 49297; return () => { x = (x * 9301 + 49297) % 233280; return x / 233280; }; };
+const G2 = {torus: new THREE.TorusGeometry(0.07, 0.018, 6, 12, Math.PI), cyl: new THREE.CylinderGeometry(1, 1, 1, 20), half: new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)};
+function tavolino(g, x, z, w, d, h) {
+  mesh(G.box, DEC.legnoC, w, 0.07, d, x, h, z, g);
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => mesh(G.box, DEC.scuro, 0.06, h, 0.06, x + a * (w / 2 - 0.06), h / 2, z + b * (d / 2 - 0.06), g));
+}
+function pilaFogli(g, x, y, z, n, rnd, mat) {
+  for (let i = 0; i < n; i++) { const f = mesh(G.box, mat || (i % 3 ? DEC.bianco : ARCH.cartaG), 0.58, 0.028, 0.42, x + (rnd() - 0.5) * 0.05, y + i * 0.03, z + (rnd() - 0.5) * 0.05, g); f.rotation.y = (rnd() - 0.5) * 0.3; }
+}
+const DECORI = {
+  accettazione: {sig: () => Math.min(20, S.metriche.nuove || 0), build(g, n) {
+    tavolino(g, 3.15, 1.55, 1.3, 0.9, 0.62);
+    mesh(G.box, DEC.scuro, 0.8, 0.05, 0.56, 2.95, 0.68, 1.55, g); mesh(G.box, DEC.scuro, 0.8, 0.12, 0.04, 2.95, 0.74, 1.82, g);
+    const r = prng(3);
+    for (let i = 0; i < n; i++) { const b = mesh(G.box, DEC.bianco, 0.62, 0.025, 0.4, 2.95 + (r() - 0.5) * 0.06, 0.72 + i * 0.028, 1.55 + (r() - 0.5) * 0.06, g); b.rotation.y = (r() - 0.5) * 0.35; mesh(G.box, DEC.rosso, 0.08, 0.026, 0.06, 0.2, 0, -0.1, b).scale.set(0.13, 1.05, 0.15); }
+    const bell = mesh(G2.half, DEC.oro.clone(), 0.13, 0.11, 0.13, 3.55, 0.66, 1.55, g); mesh(G2.cyl, DEC.oro, 0.02, 0.06, 0.02, 3.55, 0.79, 1.55, g);
+    g.userData.campanello = bell; g.userData.attivo = n > 0;
+  }},
+  triage: {sig: () => `${Math.min(25, S.metriche.bug30 || 0)}/${Math.min(25, S.metriche.cr30 || 0)}`, build(g, v) {
+    const [nb, nc] = v.split('/').map(Number);
+    [[2.55, nb, DEC.rosso], [3.45, nc, DEC.verde]].forEach(([x, n, mat], k) => {
+      const z = 1.75, h = 0.62, w = 0.72;
+      mesh(G.box, mat, w, 0.04, w, x, 0.02, z, g);
+      [[0, w / 2], [0, -w / 2]].forEach(([dx, dz]) => mesh(G.box, mat, w, h, 0.04, x + dx, h / 2, z + dz, g));
+      [[w / 2, 0], [-w / 2, 0]].forEach(([dx, dz]) => mesh(G.box, mat, 0.04, h, w, x + dx, h / 2, z + dz, g));
+      const liv = Math.min(h - 0.05, n * 0.022);
+      if (liv > 0) mesh(G.box, DEC.bianco, w - 0.06, liv, w - 0.06, x, liv / 2 + 0.04, z, g);
+      const r = prng(k + 7);
+      for (let i = 0; i < Math.min(4, n); i++) { const f = mesh(G.box, i % 2 ? DEC.bianco : ARCH.cartaG, 0.5, 0.02, 0.36, x + (r() - 0.5) * 0.15, liv + 0.06 + i * 0.03, z + (r() - 0.5) * 0.15, g); f.rotation.set((r() - 0.5) * 0.6, r() * 3, (r() - 0.5) * 0.6); }
+    });
+  }},
+  permessi: {sig: () => `${Math.min(9, S.metriche.perm30p || 0)}/${Math.min(9, S.metriche.perm30q || 0)}`, build(g, v) {
+    const [np, nq] = v.split('/').map(Number), x = 3.72, z = -0.3;
+    mesh(G.box, DEC.legno, 0.1, 1.45, 2.7, x, 1.55, z, g); mesh(G.box, DEC.sughero, 0.04, 1.3, 2.55, x + 0.06, 1.55, z, g);
+    [-1.2, 1.2].forEach(dz => mesh(G.box, DEC.scuro, 0.07, 0.85, 0.07, x, 0.42, z + dz, g));
+    const tipi = [...Array(np).fill(DEC.rosso), ...Array(nq).fill(DEC.giallo)];
+    tipi.forEach((mat, i) => {
+      const col = i % 6, row = Math.floor(i / 6), px = x + 0.1, py = 2.0 - row * 0.42, pz = z - 1.0 + col * 0.4;
+      mesh(G.box, mat, 0.07, 0.17, 0.16, px, py, pz, g);
+      const sh = new THREE.Mesh(G2.torus, DEC.metallo); sh.position.set(px, py + 0.085, pz); sh.rotation.y = Math.PI / 2; g.add(sh);
+      mesh(G.box, DEC.scuro, 0.01, 0.04, 0.03, px + 0.04, py - 0.02, pz, g, false);
+    });
+  }},
+  redazione: {sig: () => Math.min(42, S.metriche.lezioni || 0), build(g, n) {
+    const x = 3.7, z = 0, L = 2.9;
+    mesh(G.box, DEC.legno, 0.08, 2.15, L, x - 0.24, 1.07, z, g);
+    [-L / 2, L / 2].forEach(dz => mesh(G.box, DEC.legno, 0.52, 2.15, 0.07, x, 1.07, z + dz, g));
+    const ripiani = [0.08, 0.78, 1.48, 2.14];
+    ripiani.forEach(y => mesh(G.box, DEC.legnoC, 0.52, 0.06, L, x, y, z, g));
+    const r = prng(11);
+    for (let i = 0; i < n; i++) {
+      const sh = Math.floor(i / 14), k = i % 14, hb = 0.42 + r() * 0.18, tb = 0.13 + r() * 0.05;
+      const b = mesh(G.box, LIBRI[Math.floor(r() * LIBRI.length)], 0.34, hb, tb, x + 0.02, ripiani[sh] + 0.03 + hb / 2, z - L / 2 + 0.18 + k * 0.19, g);
+      if (r() < 0.12) b.rotation.x = 0.12;
+    }
+  }},
+  revisione: {sig: () => Math.min(25, S.daRivedere || 0), build(g, n) {
+    tavolino(g, 1.75, 0.2, 1.5, 0.95, 0.88);
+    mesh(G.box, DEC.scuro, 0.72, 0.05, 0.52, 1.55, 0.94, 0.2, g);
+    pilaFogli(g, 1.55, 0.98, 0.2, n, prng(5));
+    mesh(G2.cyl, DEC.scuro, 0.12, 0.04, 0.12, 2.25, 0.94, 0.0, g); mesh(G.box, DEC.metallo, 0.03, 0.55, 0.03, 2.25, 1.2, 0.0, g);
+    mesh(G2.half, DEC.scuro, 0.2, 0.16, 0.2, 2.25, 1.36, 0.0, g);
+    const bulbo = new THREE.Mesh(G.node, new THREE.MeshBasicMaterial({color: n ? '#ffd76a' : '#5a5d74'})); bulbo.position.set(2.25, 1.3, 0.0); bulbo.scale.setScalar(0.9); g.add(bulbo);
+    if (n) { const cono = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.42, 20, 1, true), new THREE.MeshBasicMaterial({color: '#ffd76a', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide})); cono.position.set(2.25, 1.13, 0.0); g.add(cono); g.userData.cono = cono; }
+    g.userData.lampada = bulbo; g.userData.attivo = n > 0;
+  }},
+  monitoraggio: {sig: () => JSON.stringify(S.tempiPrio || []), build(g) {
+    const B = new THREE.Group(); B.position.set(1.9, 0, -0.55); B.rotation.y = Math.PI / 4; g.add(B);
+    mesh(G.box, DEC.legno, 3.2, 2.0, 0.1, 0, 1.75, 0, B); mesh(G.box, DEC.lavagna, 3.0, 1.8, 0.04, 0, 1.75, 0.06, B);
+    [-1.4, 1.4].forEach(dx => mesh(G.box, DEC.scuro, 0.08, 0.8, 0.08, dx, 0.4, 0, B));
+    mesh(G.box, DEC.legnoC, 3.0, 0.05, 0.25, 0, 0.88, 0.12, B);
+    const PR = ['hotfix', 'bloccante', 'alta', 'media', 'bassa'];
+    const dati = Object.fromEntries((S.tempiPrio || []).map(r => [r.priorita, r]));
+    const max = Math.max(1, ...PR.map(p => (dati[p] ? dati[p].ok + dati[p].rit : 0)));
+    const u = Math.min(0.14, 1.3 / max);
+    PR.forEach((p, i) => {
+      const d = dati[p] || {ok: 0, rit: 0}, x = -1.2 + i * 0.6, hOk = d.ok * u, hR = d.rit * u;
+      mesh(G.box, DEC.scuro, 0.34, 0.03, 0.12, x, 0.92, 0.16, B);
+      if (hOk) mesh(G.box, DEC.verde, 0.3, hOk, 0.1, x, 0.94 + hOk / 2, 0.16, B);
+      if (hR) mesh(G.box, DEC.rosso, 0.3, hR, 0.1, x, 0.94 + hOk + hR / 2, 0.16, B);
+    });
+    const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x2 = c.getContext('2d');
+    x2.fillStyle = '#e8e3d6'; x2.font = 'bold 30px IBM Plex Mono, monospace'; x2.textAlign = 'center';
+    ['HF', 'BLO', 'ALT', 'MED', 'BAS'].forEach((t, i) => x2.fillText(t, 256 + (i - 2) * 96, 44));
+    const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+    const et = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 0.375), new THREE.MeshBasicMaterial({map: tx, transparent: true})); et.position.set(0, 2.45, 0.09); B.add(et);
+    const orol = new THREE.Group(); orol.position.set(1.2, 2.95, 0.02); B.add(orol);
+    const disco = mesh(G2.cyl, DEC.bianco, 0.32, 0.05, 0.32, 0, 0, 0, orol); disco.rotation.x = Math.PI / 2;
+    const anello = mesh(G2.cyl, DEC.scuro, 0.35, 0.04, 0.35, 0, 0, -0.01, orol); anello.rotation.x = Math.PI / 2;
+    const lancetta = (l, w) => { const p = new THREE.Group(); p.position.z = 0.04; orol.add(p); mesh(G.box, DEC.scuro, w, l, 0.015, 0, l / 2, 0, p, false); return p; };
+    g.userData.ore = lancetta(0.17, 0.035); g.userData.min = lancetta(0.26, 0.025);
+  }}
+};
+function aggiornaDecori() {
+  aggiornaArchivio();
+  if (!S) return;
+  rooms.forEach((rm, id) => {
+    const D = DECORI[id]; if (!D) return;
+    const v = D.sig();
+    if (rm.decorSig === v && rm.decor) return;
+    if (rm.decor) rm.group.remove(rm.decor);
+    rm.decor = new THREE.Group(); rm.group.add(rm.decor); rm.decorSig = v;
+    D.build(rm.decor, v);
+  });
+}
+function animaDecori(dt, T) {
+  animaArchivio(dt);
+  rooms.forEach(rm => {
+    const u = rm.decor && rm.decor.userData; if (!u) return;
+    if (u.campanello) { const k = u.attivo ? 0.6 + 0.4 * Math.sin(T * 6) : 0; u.campanello.material.emissive.setRGB(0.9 * k, 0.65 * k, 0.1 * k); }
+    if (u.lampada) { const k = u.attivo ? 0.9 + 0.25 * Math.sin(T * 3) : 0.9; u.lampada.scale.setScalar(k); if (u.cono) u.cono.material.opacity = 0.14 + 0.12 * (0.5 + 0.5 * Math.sin(T * 3)); }
+    if (u.ore) { const d = new Date(), m = d.getMinutes() + d.getSeconds() / 60, h = (d.getHours() % 12) + m / 60; u.min.rotation.z = -m / 60 * Math.PI * 2; u.ore.rotation.z = -h / 12 * Math.PI * 2; }
+  });
+}
+
 function curveBetween(a, b, h) {
   const mid = a.clone().add(b).multiplyScalar(0.5); mid.y = h;
   return new THREE.QuadraticBezierCurve3(a, mid, b);
@@ -1536,7 +1657,7 @@ function animate(now) {
     rm.card.style.zIndex = rm.hover > 0.5 ? 5 : 1;
     rm.card.style.display = p.vis && selected !== rm.id ? '' : 'none';
   });
-  animaArchivio(dt);
+  animaDecori(dt, T);
   agents3d.forEach(ag => {
     const {s} = S ? agentState(ag.a) : {s: 'idle'};
     ag.state = s;
@@ -1562,7 +1683,8 @@ function animate(now) {
     ag.lbl.classList.toggle('hide', !showLabels || !p.vis || (!!selected && ag.room.id !== selected));
   });
   if (brain) {
-    brain.nodes.forEach((n, i) => { const k = 0.5 + 0.5 * Math.sin(T * 2 + i * 1.7); n.scale.setScalar(0.8 + k * 0.6); n.material.color.setHSL(0.65, 0.6, 0.75 + k * 0.2); });
+    const attivi = S ? Math.min(brain.nodes.length, 8 + ((S.brain.documento || 0) + (S.brain.nozione || 0)) * 3 + (S.metriche.lezioni || 0) * 2) : brain.nodes.length;
+    brain.nodes.forEach((n, i) => { if (i >= attivi) { n.scale.setScalar(0.55); n.material.color.setHSL(0.65, 0.12, 0.32); return; } const k = 0.5 + 0.5 * Math.sin(T * 2 + i * 1.7); n.scale.setScalar(0.8 + k * 0.6); n.material.color.setHSL(0.65, 0.6, 0.75 + k * 0.2); });
     brain.net.material.opacity = 0.25 + 0.15 * Math.sin(T * 1.4);
     brain.group.rotation.y += dt * 0.05;
     const p = screenOf(brain.anchor); brain.lbl.style.left = p.x + 'px'; brain.lbl.style.top = p.y + 'px';
@@ -1586,7 +1708,7 @@ async function refresh() {
   try {
     S = await api('/api/stato');
     buildScene();
-    aggiornaArchivio();
+    aggiornaDecori();
     renderHeader(); updateCards();
     renderLeft();
     renderRight();
