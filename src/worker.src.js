@@ -161,13 +161,20 @@ async function presaInCarico(env) {
 
 async function apriSuBugTracker(env, ticketId, devopsId, tipo) {
   const dest = tipo === 'CR' ? 'sospesa' : 'aperto';
-  const t = await env.BUGS.prepare('SELECT id, status, devops_id, updated_at FROM tickets WHERE id = ?1').bind(ticketId).first();
+  const t = await env.BUGS.prepare('SELECT id, type, code, status, devops_id, updated_at FROM tickets WHERE id = ?1').bind(ticketId).first();
   if (!t) return { ok: false, esito: 'ticket non trovato nel bug tracker' };
   const u = await utenteBug(env);
   if (['nuovo', 'preso_in_carico'].includes(t.status)) {
+    if ((tipo === 'BUG' || tipo === 'CR') && t.type !== tipo) {
+      const code = `${tipo}-${String(ticketId).padStart(4, '0')}`;
+      await env.BUGS.prepare("UPDATE tickets SET type = ?2, code = ?3, updated_at = datetime('now') WHERE id = ?1").bind(ticketId, tipo, code).run();
+      await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato il tipo da «${t.type}» a «${tipo}». La segnalazione è stata riclassificata come ${code}.`).run();
+      await env.DB.prepare('UPDATE segnalazioni SET codice = ?2 WHERE ticket_id = ?1').bind(ticketId, code).run();
+      t.codiceNuovo = code;
+    }
     await env.BUGS.prepare("UPDATE tickets SET status = ?4, devops_id = ?2, reject_reason = NULL, status_by = ?3, status_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1").bind(ticketId, devopsId, u.id, dest).run();
     await env.BUGS.prepare('INSERT INTO notes (ticket_id, user_id, body, system) VALUES (?1, ?2, ?3, 1)').bind(ticketId, u.id, `${u.full_name} ha impostato lo stato da «${ET_STATO[t.status] || t.status}» a «${ET_STATO[dest]}», l’ID DevOps a «${devopsId}».`).run();
-    return { ok: true, esito: `ticket ${dest === 'sospesa' ? 'sospeso (CR)' : 'aperto'} con ID DevOps ${devopsId}`, stato: dest };
+    return { ok: true, esito: `${t.codiceNuovo ? 'riclassificato ' + t.codiceNuovo + ', ' : ''}ticket ${dest === 'sospesa' ? 'sospeso (CR)' : 'aperto'} con ID DevOps ${devopsId}`, stato: dest };
   }
   if (['aperto', 'approvato'].includes(t.status)) {
     if (t.devops_id && t.devops_id !== devopsId) return { ok: false, esito: `ticket già aperto con un altro ID DevOps (${t.devops_id}): non toccato`, stato: t.status };

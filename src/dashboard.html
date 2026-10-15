@@ -818,7 +818,7 @@ async function apriEditor(id) {
       $('#edSend').onclick = async () => {
         const v = vals();
         if (!v.devops_id) { toast('Scrivi l\'ID DevOps prima di inviare'); $('#edDev').focus(); return; }
-        if (!(await ask('Inviare?', `Il ticket ${s.codice || ''} diventa ${v.tipo === 'CR' ? 'Sospesa (CR)' : 'Aperto'} nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti e le tue modifiche finiscono nel Brain.`, 'Invia'))) return;
+        if (!(await ask('Inviare?', `Il ticket ${s.codice || ''} ${s.tipo_originale && s.tipo_originale !== v.tipo ? 'viene riclassificato come ' + v.tipo + ' e ' : ''}diventa ${v.tipo === 'CR' ? 'Sospesa (CR)' : 'Aperto'} nel bug tracker con ID DevOps ${v.devops_id}. Il testo viene copiato negli appunti e le tue modifiche finiscono nel Brain.`, 'Invia'))) return;
         try { await navigator.clipboard.writeText(`${v.titolo}\n\n${v.testo}`); } catch {}
         const r = await api(`/api/uscite/${u.id}/invia`, v);
         chiudiEditor();
