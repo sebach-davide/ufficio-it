@@ -1123,7 +1123,7 @@ tbody tr:hover{background:#FFF7F8}
 
 /* rail di stato = elemento firma */
 .rail{display:flex;align-items:center;margin:4px 0 22px}
-.rail .tappa{flex:1;text-align:center;position:relative;font-family:var(--display);font-size:12px;
+.rail .tappa{flex:1;text-align:center;position:relative;font-family:var(--display);font-size:12px;white-space:nowrap;
   text-transform:uppercase;letter-spacing:.05em;color:#A8B4C0}
 .rail .tappa::before{content:"";display:block;width:11px;height:11px;border-radius:50%;background:#DDE5EE;margin:0 auto 7px;position:relative;z-index:2}
 .rail .tappa::after{content:"";position:absolute;top:5px;left:-50%;width:100%;height:2px;background:#DDE5EE;z-index:1}
