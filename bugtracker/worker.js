@@ -2378,6 +2378,21 @@ function apriSegnalazioneRapida(){
         <input type="text" id="sr-titolo" maxlength="200" placeholder="Es. Errore quando emetto una fattura"></label>
       <label class="campo"><span>Descrizione</span>
         <textarea id="sr-descrizione" style="min-height:150px" placeholder="Cosa stavi facendo, in che schermata, con quale documento o cliente, e cosa è successo."></textarea></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label class="campo"><span>Tipo</span>
+          <select id="sr-tipo">
+            <option value="BUG" selected>Bug</option>
+            <option value="CR">Change Request</option>
+          </select></label>
+        <label class="campo"><span>Priorità</span>
+          <select id="sr-priorita">
+            <option value="">— scegli —</option>
+            <option value="1">1 (più urgente)</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select></label>
+      </div>
       <div class="campo"><span>Allegati</span>
         <div id="sr-drop" style="border:1.5px dashed var(--bordo);border-radius:10px;padding:14px;text-align:center;color:var(--grigio);font-size:13px;cursor:pointer">
           Trascina qui i file, <u>sfoglia</u>, oppure incolla uno screenshot con Ctrl+V
@@ -2439,11 +2454,15 @@ function apriSegnalazioneRapida(){
     const descrizione = $('#sr-descrizione').value.trim();
     if(titolo.length<8){ $('#sr-err').textContent = 'Il titolo deve avere almeno 8 caratteri.'; return; }
     if(descrizione.length<15){ $('#sr-err').textContent = 'La descrizione deve avere almeno 15 caratteri.'; return; }
+    const priorita = $('#sr-priorita').value;
+    if(!priorita){ $('#sr-err').textContent = 'Scegli una priorità da 1 a 4.'; return; }
     $('#sr-crea').disabled = true;
     try{
       const nuovo = await api('/tickets',{method:'POST',body:{
         title:titolo, area:'Da classificare', error_text:descrizione,
-        pro_check:'non_verificato', severity:'media'
+        pro_check:'non_verificato', severity:'media',
+        type:$('#sr-tipo').value === 'CR' ? 'CR' : 'BUG',
+        devops_priority:priorita
       }});
       const falliti = [];
       for(const f of file){
