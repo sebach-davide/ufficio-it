@@ -1,0 +1,10 @@
+name = "sebachplus-bugtracker"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sebachplus-bugs"
+database_id = "e6ac220a-4981-4267-8acc-13697a40cc63"

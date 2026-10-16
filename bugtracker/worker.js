@@ -248,7 +248,7 @@ async function handleApi(request, env, url) {
     if (user.password_hash) {
       ok = safeEqual(await hashPassword(password, user.password_salt), user.password_hash);
     } else {
-      ok = safeEqual(password, env.DEFAULT_PASSWORD || 'Sebach2026!');
+      ok = !!env.DEFAULT_PASSWORD && safeEqual(password, env.DEFAULT_PASSWORD);
     }
     if (!ok) return fail('Utente o password non corretti.', 401);
 
@@ -295,9 +295,9 @@ async function handleApi(request, env, url) {
     const row = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(me.id).first();
     const currentOk = row.password_hash
       ? safeEqual(await hashPassword(current, row.password_salt), row.password_hash)
-      : safeEqual(current, env.DEFAULT_PASSWORD || 'Sebach2026!');
+      : !!env.DEFAULT_PASSWORD && safeEqual(current, env.DEFAULT_PASSWORD);
     if (!currentOk) return fail('La password attuale non è corretta.', 400);
-    if (safeEqual(next, env.DEFAULT_PASSWORD || 'Sebach2026!'))
+    if (env.DEFAULT_PASSWORD && safeEqual(next, env.DEFAULT_PASSWORD))
       return fail('Scegli una password diversa da quella di default.', 400);
 
     const salt = randomHex(16);
