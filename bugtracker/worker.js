@@ -331,7 +331,9 @@ async function handleApi(request, env, url) {
     const proCheck = VALID_PRO.includes(body.pro_check) ? body.pro_check : 'non_applicabile';
     const severity = VALID_SEVERITY.includes(body.severity) ? body.severity : 'media';
     const tag = clean(body.tag, 60) || null;
-    const type = proCheck === 'anche_su_pro' ? 'CR' : 'BUG';
+    const type = body.type === 'CR' ? 'CR' : 'BUG';
+    const priorita = Number(body.devops_priority);
+    const prioritaValida = Number.isInteger(priorita) && priorita >= 1 && priorita <= 4 ? priorita : null;
 
     if (!title || title.length < 8) return fail('Il titolo deve essere più descrittivo.', 400);
     if (!area) return fail('Indica in che menu ti trovi.', 400);
@@ -343,8 +345,8 @@ async function handleApi(request, env, url) {
 
     const ins = await env.DB.prepare(
       `INSERT INTO tickets (type, title, area, operation, doc_number, error_text, no_error_message, expected,
-                            pro_check, severity, tag, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+                            pro_check, severity, tag, created_by, devops_priority, devops_override)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
       .bind(
         type,
@@ -358,7 +360,9 @@ async function handleApi(request, env, url) {
         proCheck,
         severity,
         tag,
-        me.id
+        me.id,
+        prioritaValida,
+        prioritaValida ? 1 : 0
       )
       .first();
 
@@ -399,23 +403,21 @@ async function handleApi(request, env, url) {
       setIf('expected', body.expected !== undefined ? clean(body.expected, 2000) : undefined);
       setIf('tag', body.tag !== undefined ? (clean(body.tag, 60) || null) : undefined);
       if (VALID_SEVERITY.includes(body.severity)) setIf('severity', body.severity);
-      if (VALID_PRO.includes(body.pro_check)) {
-        setIf('pro_check', body.pro_check);
-        // il tipo segue la risposta su Sebach Pro, salvo forzatura di un admin
-        if (!(isAdmin(me) && (body.type === 'BUG' || body.type === 'CR')))
-          setIf('type', body.pro_check === 'anche_su_pro' ? 'CR' : 'BUG');
-      }
-      // il tipo lo può forzare solo un admin
-      if (isAdmin(me) && (body.type === 'BUG' || body.type === 'CR')) setIf('type', body.type);
+      if (VALID_PRO.includes(body.pro_check)) setIf('pro_check', body.pro_check);
+      // il tipo (BUG o CR) lo sceglie chi segnala; l'admin lo può cambiare sempre
+      if (body.type === 'BUG' || body.type === 'CR') setIf('type', body.type);
       if (isAdmin(me) && body.devops_id !== undefined) setIf('devops_id', clean(body.devops_id, 40));
-      // priority/severity forzate: si possono impostare solo finché il bug è ancora Nuovo,
-      // una volta aperto la scelta è definitiva
-      if (isAdmin(me) && (ticket.status === 'nuovo' || ticket.status === 'preso_in_carico')) {
+      // priorità: la sceglie chi segnala, e l'admin la può forzare; vale finché il bug è Nuovo
+      const aperto = ticket.status === 'nuovo' || ticket.status === 'preso_in_carico';
+      if (body.devops_priority !== undefined && (isAdmin(me) || aperto)) {
+        const p = Number(body.devops_priority);
+        const ok = Number.isInteger(p) && p >= 1 && p <= 4;
+        setIf('devops_priority', ok ? p : null);
+        setIf('devops_override', ok ? 1 : 0);
+      }
+      // priority/severity forzate dall'admin: solo finché il bug è ancora Nuovo
+      if (isAdmin(me) && aperto) {
         if (body.devops_override !== undefined) setIf('devops_override', body.devops_override ? 1 : 0);
-        if (body.devops_priority !== undefined) {
-          const p = Number(body.devops_priority);
-          setIf('devops_priority', Number.isInteger(p) && p >= 1 && p <= 4 ? p : null);
-        }
         if (body.devops_severity !== undefined) setIf('devops_severity', clean(body.devops_severity, 60) || null);
       }
 
@@ -2049,10 +2051,13 @@ function apriWizard(esistente=null){
       doc_na: !esistente.doc_number, error_text:esistente.error_text||'',
       no_error_message: !!esistente.no_error_message,
       pro_check:esistente.pro_check||'',
-      severity:esistente.severity||''
+      severity:esistente.severity||'',
+      type:esistente.type||'BUG',
+      devops_priority:esistente.devops_priority ? String(esistente.devops_priority) : ''
     } : {
       title:'', area:'', area_libera:'', operation:'', doc_number:'', doc_na:false,
-      error_text:'', no_error_message:false, pro_check:'', severity:''
+      error_text:'', no_error_message:false, pro_check:'', severity:'',
+      type:'BUG', devops_priority:''
     }
   };
   disegnaWizard();
@@ -2129,22 +2134,16 @@ const PASSI = [
     }
   },
   {
-    dom:'Hai provato la stessa cosa su Sebach Pro?',
-    sub:'È la domanda che decide tutto: se il vecchio gestionale si comporta uguale, non è un difetto di Sebach Plus.',
-    campo:'pro_check',
-    html:d=>\`<div class="scelte">
-      \${[['solo_su_plus','Sì, e su Sebach Pro funziona correttamente','L’errore c’è solo su Sebach Plus: viene trattato come bug.'],
-         ['anche_su_pro','Sì, e su Sebach Pro sbaglia allo stesso modo','Non è una regressione: viene aperta come Change Request.'],
-         ['non_applicabile','No, non posso: la funzione esiste solo su Sebach Plus','Non c’è niente da confrontare: viene trattato come bug.']]
-        .map(([v,t,s])=>\`<label class="scelta \${d.pro_check===v?'sel':''}">
-          <input type="radio" name="w-pro" value="\${v}" \${d.pro_check===v?'checked':''}>
-          <span><b>\${t}</b><small>\${s}</small></span></label>\`).join('')}
-      </div>
-      <div class="nota-cr \${d.pro_check==='anche_su_pro'?'':'hidden'}" id="w-nota-cr">
-        La segnalazione verrà registrata come <b>Change Request</b>: chiedi una modifica di un comportamento già esistente, non la correzione di qualcosa che si è rotto.
-      </div>\`,
-    leggi:d=>{ const r=$('input[name=w-pro]:checked'); d.pro_check = r?r.value:''; },
-    valida:d=> !d.pro_check ? 'Scegli una delle tre risposte. Se non hai ancora provato su Sebach Pro, provaci adesso.' : null
+    dom:'Che tipo di segnalazione è?',
+    sub:'Bug: qualcosa che si è rotto o non funziona come dovrebbe. Change Request: una modifica a un comportamento che c’è già, o una funzione mai prevista.',
+    campo:'type',
+    html:d=>\`<label class="campo"><span>Tipo</span>
+      <select id="w-tipo">
+        <option value="BUG" \${d.type!=='CR'?'selected':''}>Bug</option>
+        <option value="CR" \${d.type==='CR'?'selected':''}>Change Request</option>
+      </select></label>\`,
+    leggi:d=>{ d.type = $('#w-tipo').value === 'CR' ? 'CR' : 'BUG'; },
+    valida:()=>null
   },
   {
     dom:'Riesci comunque a lavorare?',
@@ -2161,6 +2160,18 @@ const PASSI = [
       </div>\`,
     leggi:d=>{ const r=$('input[name=w-sev]:checked'); d.severity = r?r.value:''; },
     valida:d=> !d.severity ? 'Scegli quanto ti blocca.' : null
+  },
+  {
+    dom:'Quale priorità vuoi dare?',
+    sub:'Da 1 a 4, dove 1 è la più urgente. Puoi cambiarla finché la segnalazione è Nuova.',
+    campo:'devops_priority',
+    html:d=>\`<label class="campo"><span>Priorità</span>
+      <select id="w-priorita">
+        <option value="">— scegli —</option>
+        \${[1,2,3,4].map(n=>\`<option value="\${n}" \${d.devops_priority===String(n)?'selected':''}>\${n}</option>\`).join('')}
+      </select></label>\`,
+    leggi:d=>{ d.devops_priority = $('#w-priorita').value; },
+    valida:d=> !d.devops_priority ? 'Scegli una priorità da 1 a 4.' : null
   },
   {
     dom:'Vuoi allegare qualcosa?',
@@ -2182,7 +2193,7 @@ const PASSI = [
     sub:'Questo è quello che vedrà chi prende in carico la segnalazione. Se qualcosa non torna, torna indietro e correggilo.',
     campo:null,
     html:d=>\`<div class="riquadro">
-        <h4>\${d.pro_check==='anche_su_pro'?'Change Request':'Bug'} · \${ET_GRAV[d.severity]||''}</h4>
+        <h4>\${d.type==='CR'?'Change Request':'Bug'} · \${ET_GRAV[d.severity]||''} · priorità \${esc(d.devops_priority)||'—'}</h4>
         <div style="font-weight:600;font-size:16px;margin-bottom:10px">\${esc(d.title)}</div>
         <div style="white-space:pre-wrap">\${esc(descrizioneCompleta(d))}</div>
       </div>
@@ -2201,7 +2212,7 @@ function descrizioneCompleta(d){
     ...(d.no_error_message ? ['(nessun messaggio di errore a video)'] : []),
     d.error_text||'—',
     \`\`,
-    \`Verifica su Sebach Pro: \${ET_PRO[d.pro_check]||'—'}\`
+    ...(d.pro_check ? [\`Verifica su Sebach Pro: \${ET_PRO[d.pro_check]||'—'}\`] : [])
   ].join('\\n');
 }
 
@@ -2239,12 +2250,12 @@ function disegnaWizard(){
         <div class="riga"><div class="et">Operazione</div><div class="vl \${d.operation?'':'manca'}">\${esc(d.operation)||'da compilare'}</div></div>
         <div class="riga"><div class="et">Documento</div><div class="vl \${d.doc_number||d.doc_na?'':'manca'}">\${esc(d.doc_number)||(d.doc_na?'nessuno':'da compilare')}</div></div>
         <div class="riga"><div class="et">Errore</div><div class="vl \${(!d.error_text && !d.no_error_message)?'manca':''}">\${d.error_text?esc(d.error_text):(d.no_error_message?'—':'da compilare')}\${d.no_error_message?' <span style="color:var(--grigio)">(nessun messaggio a video)</span>':''}</div></div>
-        <div class="riga"><div class="et">Su Sebach Pro</div><div class="vl \${d.pro_check?'':'manca'}">\${esc(ET_PRO[d.pro_check])||'da compilare'}</div></div>
         <div class="riga"><div class="et">Gravità</div><div class="vl \${d.severity?'':'manca'}">\${ET_GRAV[d.severity]||'da compilare'}</div></div>
+        <div class="riga"><div class="et">Priorità</div><div class="vl \${d.devops_priority?'':'manca'}">\${esc(d.devops_priority)||'da compilare'}</div></div>
         <div class="riga"><div class="et">Allegati</div><div class="vl \${W.file.length?'':'manca'}">\${W.file.length?W.file.length+(W.file.length===1?' file':' file'):'nessuno'}</div></div>
         <div class="riga" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bordo)">
-          <div class="et">Verrà aperta come</div>
-          <div class="vl"><span class="tipo t-\${d.pro_check==='anche_su_pro'?'CR':'BUG'}">\${d.pro_check==='anche_su_pro'?'CR':'BUG'}</span></div>
+          <div class="et">Tipo</div>
+          <div class="vl"><span class="tipo t-\${d.type==='CR'?'CR':'BUG'}">\${d.type==='CR'?'CR':'BUG'}</span></div>
         </div>
       </aside>
     </div>
@@ -2319,7 +2330,8 @@ async function avanti(){
 
   const body = {
     title:W.d.title, area:W.d.area, operation:W.d.operation, doc_number:W.d.doc_number,
-    error_text:W.d.error_text, no_error_message:W.d.no_error_message, pro_check:W.d.pro_check, severity:W.d.severity
+    error_text:W.d.error_text, no_error_message:W.d.no_error_message, pro_check:W.d.pro_check, severity:W.d.severity,
+    type:W.d.type, devops_priority:W.d.devops_priority
   };
   $('#wiz-avanti').disabled = true;
   try{
