@@ -1095,7 +1095,7 @@ tbody tr:hover{background:#FFF7F8}
 
 /* ---------- badge ---------- */
 .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--display);font-weight:600;font-size:12.5px;
-  text-transform:uppercase;letter-spacing:.04em;padding:3px 9px;border-radius:999px;border:1px solid}
+  text-transform:uppercase;letter-spacing:.04em;padding:3px 9px;border-radius:999px;border:1px solid;white-space:nowrap}
 .b-nuovo{color:#39414D;border-color:#D8DDE4;background:#F1F3F6}
 .b-preso_in_carico{color:#1F4E8C;border-color:#C9D9F2;background:#EEF4FC}
 .b-aperto{color:#8A5310;border-color:#F2DDB6;background:#FDF5E7}
